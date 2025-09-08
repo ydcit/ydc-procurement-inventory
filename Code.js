@@ -102,9 +102,18 @@ function setup() {
   const owner = Session.getEffectiveUser().getEmail() || 'owner@domain.tld';
   const users = ss.getSheetByName(SHEET_USERS);
   if (users.getLastRow() === 1) {
-    const uid = 'USR-' + pad(nextCounter(P_USER), 5);
-    users.appendRow([uid, owner, 'System Controller', 'IT', '', 'controller', 'Active', nowISO()]);
-  }
+  const uid = 'USR-' + pad(nextCounter(P_USER), 5);
+  _append(users, {
+    UserID: uid,
+    Email: owner,
+    Name: 'System Controller',
+    Department: 'IT',
+    RequestedRole: '',
+    Role: 'controller',
+    Status: 'Active',
+    CreatedAt: nowISO()
+  });
+}
 }
 function _parseSpreadsheetId(input) {
   const s = String(input || '').trim();
@@ -173,14 +182,28 @@ function getCurrentUser() {
 function requestAccount(name, department, requestedRole) {
   const email = getActiveEmail();
   if (!email) throw new Error('No signed-in Google account detected.');
-  const users = sheet(SHEET_USERS);
-  const exists = _readObjects(users).find(x => String(x.Email).toLowerCase() === email.toLowerCase());
-  if (exists) return { ok:false, message:'Account already exists with status: ' + exists.Status };
+
+  const sh = sheet(SHEET_USERS);
+  // Make sure the column exists (adds if missing)
+  ensureColumns(sh, ['UserID','Email','Name','Department','RequestedRole','Role','Status','CreatedAt']);
+
+  const existing = _readObjects(sh).find(r => String(r.Email).toLowerCase() === String(email).toLowerCase());
+  if (existing) {
+    return { ok:false, message:'Account already exists with status: ' + (existing.Status || 'Unknown') };
+  }
+
   const uid = 'USR-' + pad(nextCounter(P_USER), 5);
-  _append(users, {
-    UserID: uid, Email: email, Name: name || email, Department: department || '',
-    RequestedRole: requestedRole || 'user', Role: 'user', Status: 'Pending', CreatedAt: nowISO()
+  _append(sh, {
+    UserID: uid,
+    Email: email,
+    Name: name || email,
+    Department: department || '',
+    RequestedRole: requestedRole || 'user',
+    Role: 'user',
+    Status: 'Pending',
+    CreatedAt: nowISO() // <-- this drives the “When” column in the UI
   });
+
   notifyUserCreated({ email, name, department, requestedRole });
   return { ok:true, message:'Account request submitted. Wait for Controller approval.' };
 }
@@ -205,7 +228,8 @@ function getLedger(limit) {
 }
 function getPending() {
   const me = getCurrentUser();
-  if (me.role !== 'controller' || me.status !== 'Active') return [];
+  // Managers can see/approve transactions; only controllers manage users
+  if (!['controller','manager'].includes(me.role) || me.status !== 'Active') return [];
   return _readObjects(sheet(SHEET_PENDING)).filter(p => p.Status === 'Pending');
 }
 function getCounts() {
@@ -214,12 +238,32 @@ function getCounts() {
   const ledger = _readObjects(sheet(SHEET_LEDGER)).length;
   return { activeSkus: items.length, onhand: items.reduce((a,b)=> a + Number(b.Qty||0), 0), pending, ledger };
 }
+function getMyActivity() {
+  const me = getCurrentUser();
+  const email = (me.email || '').toLowerCase();
+  const allPending = _readObjects(sheet(SHEET_PENDING));
+  const allLedger  = _readObjects(sheet(SHEET_LEDGER));
+
+  const minePending = allPending.filter(r => String(r.By || '').toLowerCase() === email);
+  const mineLedger  = allLedger.filter(r => String(r.By || '').toLowerCase() === email);
+
+  return { minePending, mineLedger };
+}
+
 function getBootstrap() {
+  // Make columns E..H = RequestedRole, Role, Status, CreatedAt
+  normalizeUsersSheet();
+  ensureUsersTimestampColumnAndBackfill(); // will now fill column H only
+
   const me = getCurrentUser();
   const info = getSpreadsheetInfo();
+
   const usersPending = (me.role === 'controller' && me.status === 'Active')
     ? _readObjects(sheet(SHEET_USERS)).filter(u => u.Status === 'Pending')
     : [];
+
+  const my = getMyActivity();
+
   return {
     user: me,
     counts: getCounts(),
@@ -227,9 +271,12 @@ function getBootstrap() {
     pending: getPending(),
     usersPending,
     ledger: getLedger(500),
+    minePending: my.minePending,
+    mineLedger:  my.mineLedger,
     db: info
   };
 }
+
 
 /* ---------------- Queue Pending ---------------- */
 function queuePending(rec) {
@@ -276,11 +323,33 @@ function actionModifySku(payload) {
   const it = _findBy(sheet(SHEET_ITEMS), 'SKU', payload.sku);
   if (!it) throw new Error('SKU not found');
 
-  const fields = [['Name','name'],['Description','desc'],['UoM','uom'],['Location','loc']];
+  // Allow changing Status between Active <-> On Hold via Modify (retire stays a separate action)
+  const fields = [
+    ['Name','name'],
+    ['Description','desc'],
+    ['UoM','uom'],
+    ['Location','loc'],
+    ['Status','status'] // NEW
+  ];
+
   const changes = [];
   fields.forEach(([col,key])=>{
     const from = it[col] ?? '';
-    const to   = (payload[key] ?? from);
+    let to   = (payload[key] ?? from);
+
+    if (col === 'Status') {
+      if (String(it.Status) === 'Retired') {
+        throw new Error('Cannot modify a Retired item. Receive stock (reactivate) before changes.');
+      }
+      if (to === '' || to === null || to === undefined) to = from;
+      if (String(to) === 'Retired') {
+        throw new Error('Use the Retire SKU action to retire an item.');
+      }
+      if (!['Active','On Hold'].includes(String(to))) {
+        throw new Error('Status must be either "Active" or "On Hold".');
+      }
+    }
+
     if (String(from) !== String(to)) changes.push({ field: col, from, to });
   });
 
@@ -290,9 +359,12 @@ function actionModifySku(payload) {
   const trimmed = summary.length > 180 ? summary.slice(0,177)+'…' : summary;
 
   return queuePending({
-    type:'MODIFY_SKU', sku:payload.sku, name:payload.name || it.Name || '',
-    uom:payload.uom || it.UoM || '', note:`Modify ${payload.sku} — ${trimmed}`,
-    payload: { ...payload, changes }
+    type:'MODIFY_SKU',
+    sku: payload.sku,
+    name: payload.name || it.Name || '',
+    uom:  payload.uom  || it.UoM  || '',
+    note: `Modify ${payload.sku} — ${trimmed}`,
+    payload: { ...payload, changes } // includes payload.status when provided
   });
 }
 
@@ -318,17 +390,23 @@ function actionIssue(sku, qty, employee, department, reason) {
   if (!sku || !(qty > 0)) throw new Error('Invalid issue request');
   const it = _findBy(sheet(SHEET_ITEMS), 'SKU', sku);
   if (!it) throw new Error('SKU not found');
+  if (String(it.Status) === 'On Hold') throw new Error('This item is On Hold and cannot be issued.');
   if (Number(qty) > Number(it.Qty || 0)) throw new Error('Cannot issue more than on-hand quantity');
   const note = `Issue ${qty} ${it.UoM} to ${employee} (${department}). Reason: ${reason || ''}`;
   return queuePending({ type:'ISSUE', sku, name:it.Name, uom:it.UoM, qty, delta:-Math.abs(qty), reason, note });
 }
 
 /* ---------------- Approvals ---------------- */
-function approvePending(pendingId) {
+function approvePending(pendingId, commentOpt) {
   const me = getCurrentUser();
-  if (me.role !== 'controller' || me.status !== 'Active') throw new Error('Only controllers can approve.');
+  if (!['controller','manager'].includes(me.role) || me.status !== 'Active') {
+    throw new Error('Only controllers or managers can approve.');
+  }
   const pen = _findBy(sheet(SHEET_PENDING), 'PendingID', pendingId);
-  if (!pen || pen.Status !== 'Pending') throw new Error('Pending record not found');
+  if (!pen) throw new Error('Request not found.');
+  if (String(pen.Status) !== 'Pending') {
+    throw new Error('This request has already been processed (status: ' + pen.Status + ').');
+  }
 
   const items = sheet(SHEET_ITEMS);
   const type = pen.Type;
@@ -336,6 +414,7 @@ function approvePending(pendingId) {
   const payload = pen.PayloadJSON ? JSON.parse(pen.PayloadJSON) : null;
   const sku = (payload && payload.sku) || pen.SKU;
 
+  // === apply the business effect first (same as before) ===
   if (type === 'CREATE_SKU') {
     const currentRow = _findBy(items, 'SKU', sku);
     const name = (payload && payload.name) || pen.Name || '';
@@ -349,20 +428,23 @@ function approvePending(pendingId) {
         CreatedAt: currentRow.CreatedAt || nowISO(), UpdatedAt: nowISO()
       });
     } else {
-      _append(items, { SKU: sku, Name: name, Description: desc, UoM: uom, Location: loc,
-        Qty: 0, Status: 'Active', CreatedAt: nowISO(), UpdatedAt: nowISO() });
+      _append(items, {
+        SKU: sku, Name: name, Description: desc, UoM: uom, Location: loc,
+        Qty: 0, Status: 'Active', CreatedAt: nowISO(), UpdatedAt: nowISO()
+      });
     }
-
   } else if (type === 'MODIFY_SKU') {
     const it = _findBy(items, 'SKU', sku);
     if (it) _updateByKey(items, 'SKU', sku, {
-      Name: (payload && payload.name) ?? it.Name,
+      Name:        (payload && payload.name) ?? it.Name,
       Description: (payload && payload.desc) ?? it.Description,
-      UoM: (payload && payload.uom) ?? it.UoM,
-      Location: (payload && payload.loc) ?? it.Location,
+      UoM:         (payload && payload.uom)  ?? it.UoM,
+      Location:    (payload && payload.loc)  ?? it.Location,
+      Status: (payload && typeof payload.status !== 'undefined')
+        ? (['Active','On Hold'].includes(String(payload.status)) ? String(payload.status) : it.Status)
+        : it.Status,
       UpdatedAt: nowISO()
     });
-
   } else if (type === 'RETIRE_SKU') {
     const it = _findBy(items, 'SKU', sku);
     if (it && Number(it.Qty || 0) === 0) {
@@ -370,7 +452,6 @@ function approvePending(pendingId) {
     } else {
       throw new Error('Cannot retire: stock must be exactly 0 at approval time.');
     }
-
   } else if (type === 'RECEIVE') {
     const it = _findBy(items, 'SKU', sku);
     if (it) {
@@ -384,7 +465,6 @@ function approvePending(pendingId) {
       }
       _updateByKey(items, 'SKU', sku, { Qty: Number(it.Qty||0) + qty, UpdatedAt: nowISO() });
     }
-
   } else if (type === 'ISSUE') {
     const it = _findBy(items, 'SKU', sku);
     if (it) {
@@ -396,32 +476,140 @@ function approvePending(pendingId) {
     }
   }
 
+  // === mark approved and append optional comment to notes ===
   _updateByKey(sheet(SHEET_PENDING), 'PendingID', pendingId, { Status:'Approved' });
-  _updateByKey(sheet(SHEET_LEDGER), 'ID', pen.LinkID, { Status:'Approved' });
+  _updateByKey(sheet(SHEET_LEDGER),  'ID',        pen.LinkID,  { Status:'Approved' });
 
+  // carry over original pen.Note into ledger if it was blank/placeholder
   const led = _findBy(sheet(SHEET_LEDGER), 'ID', pen.LinkID);
   if (led && (!led.Note || led.Note === `Modify ${sku}`)) {
     _updateByKey(sheet(SHEET_LEDGER), 'ID', pen.LinkID, { Note: pen.Note });
   }
 
-  // Recipients per configured event + result to requester
-  notifyApprovedEvent(type, pen);
-  notifyRequesterResult('Approved', pen);
+  // append comment if provided
+  const c = (commentOpt && String(commentOpt).trim()) ? String(commentOpt).trim() : '';
+  if (c) {
+    const user  = me.email || 'unknown';
+    const stamp = new Date().toLocaleString();
+    const suffix = ` [Approved by ${user} @ ${stamp} — Comment: ${c}]`;
+
+    const penAfter = _findBy(sheet(SHEET_PENDING), 'PendingID', pendingId);
+    const newPenNote = (penAfter && penAfter.Note ? penAfter.Note : '') + suffix;
+    _updateByKey(sheet(SHEET_PENDING), 'PendingID', pendingId, { Note: newPenNote });
+
+    const ledAfter = _findBy(sheet(SHEET_LEDGER), 'ID', pen.LinkID);
+    const newLedNote = (ledAfter && ledAfter.Note ? ledAfter.Note : (pen.Note || '')) + suffix;
+    _updateByKey(sheet(SHEET_LEDGER), 'ID', pen.LinkID, { Note: newLedNote });
+  }
+
+  // send notifications using the final updated row (so the comment shows up)
+  const penFinal = _findBy(sheet(SHEET_PENDING), 'PendingID', pendingId);
+  notifyApprovedEvent(type, penFinal);
+  notifyRequesterResult('Approved', penFinal);
 
   return { ok:true };
 }
 
-function declinePending(pendingId) {
+function declinePending(pendingId, reason) {
   const me = getCurrentUser();
-  if (me.role !== 'controller' || me.status !== 'Active') throw new Error('Only controllers can decline.');
+  if (!['controller','manager'].includes(me.role) || me.status !== 'Active') {
+    throw new Error('Only controllers or managers can decline.');
+  }
+  if (!reason || !String(reason).trim()) throw new Error('A reason is required to decline.');
   const pen = _findBy(sheet(SHEET_PENDING), 'PendingID', pendingId);
-  if (!pen || pen.Status !== 'Pending') throw new Error('Pending record not found');
-  _updateByKey(sheet(SHEET_PENDING), 'PendingID', pendingId, { Status:'Declined' });
-  _updateByKey(sheet(SHEET_LEDGER), 'ID', pen.LinkID, { Status:'Declined' });
+  if (!pen) throw new Error('Request not found.');
+  if (String(pen.Status) !== 'Pending') {
+    throw new Error('This request has already been processed (status: ' + pen.Status + ').');
+  }
 
-  // Notify requester of decline
-  notifyRequesterResult('Declined', pen);
+  const user  = me.email || 'unknown';
+  const stamp = new Date().toLocaleString();
+
+  _updateByKey(sheet(SHEET_PENDING), 'PendingID', pendingId, {
+    Status: 'Declined',
+    Reason: String(reason).trim()
+  });
+
+  const led = _findBy(sheet(SHEET_LEDGER), 'ID', pen.LinkID);
+  if (led) {
+    const newLedNote = `${led.Note || ''} [Declined by ${user} @ ${stamp} — Reason: ${String(reason).trim()}]`;
+    _updateByKey(sheet(SHEET_LEDGER), 'ID', pen.LinkID, { Status: 'Declined', Note: newLedNote });
+  }
+
+  const updated = _findBy(sheet(SHEET_PENDING), 'PendingID', pendingId);
+  notifyRequesterResult('Declined', updated);
   return { ok:true };
+}
+
+/** ===================== Signed Action Links (Approve/Decline in Email) ===================== **/
+
+// Run once from editor to create the secret salt in Script Properties.
+function initAuthSalt() {
+  var rand = Utilities.getUuid() + ':' + Utilities.getUuid();
+  PropertiesService.getScriptProperties().setProperty('AUTH_SALT', rand);
+  return 'AUTH_SALT set.';
+}
+function getAuthSalt_() {
+  var salt = PropertiesService.getScriptProperties().getProperty('AUTH_SALT');
+  if (!salt) throw new Error('AUTH_SALT not set. Run initAuthSalt() once.');
+  return salt;
+}
+function _b64url_(bytesOrString) {
+  // Accept Uint8[] or string
+  var bytes = Array.isArray(bytesOrString)
+    ? bytesOrString
+    : Utilities.newBlob(String(bytesOrString)).getBytes();
+
+  // ❌ return Utilities.base64EncodeWebSafe(bytes, true);
+  // ✅ just one argument:
+  return Utilities.base64EncodeWebSafe(bytes);
+}
+
+function _b64urlToString_(b64) {
+  return Utilities.newBlob(Utilities.base64DecodeWebSafe(String(b64))).getDataAsString();
+}
+function _sign_(payloadString) {
+  var key = getAuthSalt_();
+  var raw = Utilities.computeHmacSha256Signature(payloadString, key);
+  return _b64url_(raw);
+}
+function _verifyToken_(token) {
+  // token format: base64url(payload).base64url(sig)
+  var parts = String(token || '').split('.');
+  if (parts.length !== 2) throw new Error('Invalid token format');
+  var payloadStr = _b64urlToString_(parts[0]);
+  var expected   = _sign_(payloadStr);
+  if (expected !== parts[1]) throw new Error('Bad signature');
+  var data = JSON.parse(payloadStr);
+  if (!data || !data.pid || !data.u || !data.a || !data.exp) throw new Error('Malformed token');
+  if (Date.now() > Number(data.exp)) throw new Error('Token expired');
+  return data; // { a: 'approve'|'decline', pid, u, exp }
+}
+function makeActionLink_(action, pendingId, recipientEmail, ttlMinutes) {
+  var exp = Date.now() + (Math.max(1, ttlMinutes || (3*24*60))) * 60 * 1000; // default 3 days
+  var payload = JSON.stringify({ a: action, pid: String(pendingId), u: String(recipientEmail).toLowerCase(), exp: exp });
+  var tok = _b64url_(payload) + '.' + _sign_(payload);
+  var base = webAppUrl(); // your helper
+  return base + '?action=' + encodeURIComponent(action) + '&t=' + encodeURIComponent(tok);
+}
+function actionButtonsHtml_(buttons) {
+  // buttons: [{text, href, bg?, color?}]
+  var cells = buttons.map(function(b){
+    var bg = b.bg || '#0d6efd', color = b.color || '#fff';
+    return '' +
+      '<td align="center" style="padding:0 6px 8px">' +
+        '<a href="'+b.href+'" ' +
+           'style="display:inline-block;padding:10px 16px;border-radius:8px;background:'+bg+';color:'+color+';text-decoration:none;font-weight:700">' +
+           b.text +
+        '</a>' +
+      '</td>';
+  }).join('');
+  return '' +
+    '<table role="presentation" width="100%" style="margin-top:18px"><tr>' +
+      '<td align="center">' +
+        '<table role="presentation" style="margin:0 auto"><tr>' + cells + '</tr></table>' +
+      '</td>' +
+    '</tr></table>';
 }
 
 /* ---------------- Test data helpers ---------------- */
@@ -455,38 +643,213 @@ function seedTestData() {
 }
 
 /* ---------------- HTTP ---------------- */
-function doGet() {
+function doGet(e) {
+  // Action router for email clicks
+  if (e && e.parameter && e.parameter.action) {
+    return handleActionGet_(e);
+  }
+  // Default: load the main web app
   return HtmlService.createTemplateFromFile('index')
     .evaluate()
     .setTitle(APP_NAME)
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
+function handleActionGet_(e) {
+  try {
+    var tok = e.parameter.t || e.parameter.token;
+    var act = (e.parameter.action || '').toLowerCase(); // 'approve' | 'decline'
+    var data = _verifyToken_(tok); // {a,pid,u,exp}
+
+    // Must be signed in as the intended approver
+    var me = getCurrentUser();
+    if (!me.email) return renderActionPage_('Sign-in required', 'Please sign in with your YDC account, then click the link again.', 'info');
+
+    if (String(me.email).toLowerCase() !== String(data.u).toLowerCase()) {
+      var switchLink = 'https://accounts.google.com/Logout';
+      return renderActionPage_(
+        'Wrong Google Account',
+        'This link was issued to <b>' + data.u + '</b> but you are signed in as <b>' + me.email + '</b>.<br>' +
+        'Please <a href="'+switchLink+'" target="_blank" rel="noopener">switch accounts</a> and try again.',
+        'warning'
+      );
+    }
+
+    // Must be controller or manager
+    if (!( ['controller','manager'].includes(String(me.role)) && String(me.status) === 'Active')) {
+      return renderActionPage_('Not authorized',
+        'Only Controllers or Managers with Active status can approve/decline. Your role: ' + (me.role || '—') + '.', 'danger');
+    }
+
+    // === NEW: show "already processed" page instead of forms ===
+    var pen = _findBy(sheet(SHEET_PENDING), 'PendingID', data.pid);
+    if (!pen) {
+      return renderActionPage_('Request not found',
+        'This request no longer exists (it may have been archived).', 'warning');
+    }
+    if (String(pen.Status) !== 'Pending') {
+      var st = String(pen.Status);
+      var kind = st === 'Approved' ? 'success' : (st === 'Declined' ? 'danger' : 'warning');
+      return renderActionPage_(
+        'Already ' + st,
+        'This request has already been <b>' + st.toLowerCase() + '</b>. No further action is possible from this link.',
+        kind,
+        data.pid
+      );
+    }
+
+    // Approve: open mini form (optional comment)
+    if (act === 'approve') {
+      return renderApproveFormPage_(data.pid);
+    }
+
+    // Decline: open mini form (required reason)
+    if (act === 'decline') {
+      return renderDeclineFormPage_(data.pid);
+    }
+
+    // Fallback
+    return renderActionPage_('Unknown action', 'Unsupported action: ' + act, 'danger');
+
+  } catch (err) {
+    return renderActionPage_('Link error', err.message || String(err), 'danger');
+  }
+}
+
+function renderApproveFormPage_(pendingId) {
+  var html = '' +
+'<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1">' +
+'<style>@keyframes spin{to{transform:rotate(360deg)}}</style>' +
+'<div style="max-width:720px;margin:42px auto;padding:22px 24px;border:1px solid #e5e7eb;border-radius:16px;background:#fff;font:14px/1.5 -apple-system,Segoe UI,Roboto,Arial;color:#111">' +
+  '<div style="font-weight:800;font-size:22px;margin-bottom:8px;color:#16a34a">Approve Request</div>' +
+  '<div style="color:#374151">Pending ID: <b>'+pendingId+'</b></div>' +
+  '<label style="display:block;margin-top:12px;font-weight:600">Comment (optional)</label>' +
+  '<textarea id="comment" rows="3" placeholder="Add a note for the requester/ledger (optional)" ' +
+           'style="width:100%;padding:10px;border:1px solid #d1d5db;border-radius:10px"></textarea>' +
+  '<div style="margin-top:14px;text-align:center">' +
+    '<button id="btnApprove" style="padding:10px 16px;border-radius:8px;background:#16a34a;color:#fff;border:0;font-weight:700">Submit Approve</button>' +
+    '<a href="'+webAppUrl()+'" style="display:inline-block;margin-left:8px;padding:10px 16px;border-radius:8px;background:#0d6efd;color:#fff;text-decoration:none;font-weight:700">Open Web App</a>' +
+    '<span id="spin" style="display:none;margin-left:8px;width:14px;height:14px;border:2px solid #d1d5db;border-top-color:#0d6efd;border-radius:50%;display:inline-block;vertical-align:middle;animation:spin .8s linear infinite"></span>' +
+  '</div>' +
+  '<div id="msg" style="margin-top:12px;color:#374151;text-align:center"></div>' +
+'</div>' +
+'<script>' +
+'  (function(){' +
+'    var btn = document.getElementById("btnApprove");' +
+'    var msg = document.getElementById("msg");' +
+'    var spin = document.getElementById("spin");' +
+'    btn.addEventListener("click", function(){' +
+'      var c = (document.getElementById("comment").value || "").trim();' +
+'      btn.disabled = true; spin.style.display = "inline-block"; msg.textContent = "Submitting approval…";' +
+'      google.script.run' +
+'        .withSuccessHandler(function(){' +
+'          msg.innerHTML = "Approved successfully. You can close this tab.";' +
+'          spin.style.display = "none";' +
+'        })' +
+'        .withFailureHandler(function(e){' +
+'          msg.innerHTML = "Error: " + (e && e.message ? e.message : e);' +
+'          btn.disabled = false; spin.style.display = "none";' +
+'        })' +
+'        .approvePending("'+pendingId+'", c);' +   // <— pass optional comment
+'    });' +
+'  })();' +
+'</script>';
+  return HtmlService.createHtmlOutput(html)
+    .setTitle(APP_NAME + ' — Approve')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+function renderActionPage_(title, message, kind, pidOpt) {
+  var color = (kind === 'success') ? '#16a34a' :
+              (kind === 'warning') ? '#b38700' :
+              (kind === 'danger')  ? '#a61b29' : '#0d6efd';
+  var back = webAppUrl();
+  var body = '' +
+    '<div style="max-width:720px;margin:42px auto;padding:22px 24px;border:1px solid #e5e7eb;border-radius:16px;background:#fff;font:14px/1.5 -apple-system,Segoe UI,Roboto,Arial;color:#111">' +
+      '<div style="font-weight:800;font-size:22px;margin-bottom:8px;color:'+color+'">'+title+'</div>' +
+      '<div style="color:#374151">'+message+'</div>' +
+      (pidOpt ? '<div style="margin-top:10px;color:#6b7280">Pending ID: '+pidOpt+'</div>' : '') +
+      '<div style="margin-top:16px"><a href="'+back+'" style="display:inline-block;padding:10px 16px;border-radius:8px;background:#0d6efd;color:#fff;text-decoration:none;font-weight:700">Open Web App</a></div>' +
+    '</div>';
+  return HtmlService.createHtmlOutput('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1">'+body)
+    .setTitle(APP_NAME)
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+function renderDeclineFormPage_(pendingId) {
+  var html = '' +
+'<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1">' +
+'<style>@keyframes spin{to{transform:rotate(360deg)}}</style>' +
+'<div style="max-width:720px;margin:42px auto;padding:22px 24px;border:1px solid #e5e7eb;border-radius:16px;background:#fff;font:14px/1.5 -apple-system,Segoe UI,Roboto,Arial;color:#111">' +
+  '<div style="font-weight:800;font-size:22px;margin-bottom:8px;color:#a61b29">Decline Request</div>' +
+  '<div style="color:#374151">Pending ID: <b>'+pendingId+'</b></div>' +
+  '<label style="display:block;margin-top:12px;font-weight:600">Reason (required)</label>' +
+  '<textarea id="reason" rows="3" style="width:100%;padding:10px;border:1px solid #d1d5db;border-radius:10px"></textarea>' +
+  '<div style="margin-top:14px;text-align:center">' +
+    '<button id="btnGo" style="padding:10px 16px;border-radius:8px;background:#a61b29;color:#fff;border:0;font-weight:700">Submit Decline</button>' +
+    '<a href="'+webAppUrl()+'" style="display:inline-block;margin-left:8px;padding:10px 16px;border-radius:8px;background:#0d6efd;color:#fff;text-decoration:none;font-weight:700">Open Web App</a>' +
+    '<span id="spin" style="display:none;margin-left:8px;width:14px;height:14px;border:2px solid #d1d5db;border-top-color:#0d6efd;border-radius:50%;display:inline-block;vertical-align:middle;animation:spin .8s linear infinite"></span>' +
+  '</div>' +
+  '<div id="msg" style="margin-top:12px;color:#374151;text-align:center"></div>' +
+'</div>' +
+'<script>' +
+'  (function(){' +
+'    var btn = document.getElementById("btnGo");' +
+'    var msg = document.getElementById("msg");' +
+'    var spin = document.getElementById("spin");' +
+'    btn.addEventListener("click", function(){' +
+'      var r = (document.getElementById("reason").value || "").trim();' +
+'      if(!r){ alert("Please enter a reason."); return; }' +
+'      btn.disabled = true; spin.style.display = "inline-block"; msg.textContent = "Submitting decline…";' +
+'      google.script.run' +
+'        .withSuccessHandler(function(){' +
+'          msg.innerHTML = "Declined successfully. You can close this tab.";' +
+'          spin.style.display = "none";' +
+'        })' +
+'        .withFailureHandler(function(e){' +
+'          msg.innerHTML = "Error: " + (e && e.message ? e.message : e);' +
+'          btn.disabled = false; spin.style.display = "none";' +
+'        })' +
+'        .declinePending("'+pendingId+'", r);' +
+'    });' +
+'  })();' +
+'</script>';
+  return HtmlService.createHtmlOutput(html)
+    .setTitle(APP_NAME + ' — Decline')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
 /* ---------------- Void (controller) ---------------- */
- function voidPending(pendingId) {
-   const me = getCurrentUser();
-   if (me.role !== 'controller' || me.status !== 'Active') {
-     throw new Error('Only controllers can void.');
-   }
-   const user  = me.email || 'unknown';
-   const stamp = new Date().toLocaleString();
+function voidPending(pendingId, reason) {
+  const me = getCurrentUser();
+  if (!['controller','manager'].includes(me.role) || me.status !== 'Active') {
+    throw new Error('Only controllers or managers can void.');
+  }
+  if (!reason || !String(reason).trim()) throw new Error('A reason is required to void.');
 
-   const pen = _findBy(sheet(SHEET_PENDING), 'PendingID', pendingId);
-   if (!pen || pen.Status !== 'Pending') throw new Error('Pending record not found');
+  const pen = _findBy(sheet(SHEET_PENDING), 'PendingID', pendingId);
+  if (!pen || pen.Status !== 'Pending') throw new Error('Pending record not found');
 
-   const newPenNote = `${pen.Note || ''} [Voided by ${user} @ ${stamp}]`;
-   _updateByKey(sheet(SHEET_PENDING), 'PendingID', pendingId, { Status: 'Voided', Note: newPenNote });
+  const user  = me.email || 'unknown';
+  const stamp = new Date().toLocaleString();
 
-   const led = _findBy(sheet(SHEET_LEDGER), 'ID', pen.LinkID);
-   if (led) {
-     const newLedNote = `${led.Note || ''} [Voided by ${user} @ ${stamp}]`;
-     _updateByKey(sheet(SHEET_LEDGER), 'ID', pen.LinkID, { Status: 'Voided', Note: newLedNote });
-   }
-    // Notify requester that their request was voided
-    notifyRequesterResult('Voided', pen);
-   return { ok: true };
- }
+  const newPenNote = `${pen.Note || ''} [Voided by ${user} @ ${stamp}]`;
+  _updateByKey(sheet(SHEET_PENDING), 'PendingID', pendingId, {
+    Status: 'Voided',
+    Note: newPenNote,
+    Reason: String(reason).trim()
+  });
 
+  const led = _findBy(sheet(SHEET_LEDGER), 'ID', pen.LinkID);
+  if (led) {
+    const newLedNote = `${led.Note || ''} [Voided by ${user} @ ${stamp} — Reason: ${String(reason).trim()}]`;
+    _updateByKey(sheet(SHEET_LEDGER), 'ID', pen.LinkID, { Status: 'Voided', Note: newLedNote });
+  }
+
+  const updated = _findBy(sheet(SHEET_PENDING), 'PendingID', pendingId);
+  notifyRequesterResult('Voided', updated);
+  return { ok: true };
+}
 
 /* =======================================================================
    ========================== NOTIFICATIONS ==============================
@@ -517,6 +880,13 @@ function parseEmailList(s) {
     .filter(x => x && /@/.test(x))
     .filter((v,i,a)=> a.indexOf(v)===i);
 }
+function getApprovers() {
+  return _readObjects(sheet(SHEET_USERS))
+    .filter(u => ['controller','manager'].includes(String(u.Role)) && String(u.Status) === 'Active')
+    .map(u => String(u.Email || '').trim())
+    .filter(Boolean);
+}
+
 function getControllers() {
   return _readObjects(sheet(SHEET_USERS))
     .filter(u => String(u.Role) === 'controller' && String(u.Status) === 'Active')
@@ -524,15 +894,15 @@ function getControllers() {
     .filter(Boolean);
 }
 function resolveRecipients(eventKey, opts) {
-  // If explicit controllers-only is requested, ignore sheet config for "to"
+  // When controllersOnly is set, we actually want "approvers only"
   if (opts && opts.controllersOnly) {
-    return { to: getControllers(), cc: [] };
+    return { to: getApprovers(), cc: [] };
   }
-  const cfg = readNotifyConfig()[eventKey] || { enabled:true, recipients:[], cc:[] };
-  if (!cfg.enabled) return { to:[], cc:[] };
+  const cfg = readNotifyConfig()[eventKey] || { enabled: true, recipients: [], cc: [] };
+  if (!cfg.enabled) return { to: [], cc: [] };
   let to = [].concat(cfg.recipients || []);
   if (opts && opts.includeControllers) to = to.concat(getControllers());
-  to = to.filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i);
+  to = to.filter(Boolean).filter((v,i,a)=> a.indexOf(v)===i);
   return { to, cc: cfg.cc || [] };
 }
 function sendMailSafe(to, subject, html, cc) {
@@ -567,71 +937,90 @@ function friendlyType(t){
 
 /* ---------- Email UI (centered card) ---------- */
 function cardEmail(title, rows, opts) {
-  const btnText = (opts && opts.ctaText) || 'Open Web App';
-  const btnHref = (opts && opts.ctaHref) || webAppUrl();
-  const subtitle = opts && opts.subtitle ? `<div style="color:#6b7280;text-align:center;margin:6px 0 12px">${opts.subtitle}</div>` : '';
+  var btnText = (opts && opts.ctaText) || 'Open Web App';
+  var btnHref = (opts && opts.ctaHref) || webAppUrl();
+  var subtitle = (opts && opts.subtitle)
+    ? '<div style="color:#6b7280;text-align:center;margin:6px 0 12px">'+opts.subtitle+'</div>' : '';
 
-  const tableRows = rows.map(([k,v]) => `
-    <tr>
-      <td style="width:220px;padding:10px 12px;border:1px solid #e5e7eb;background:#f9fafb;color:#6b7280">${k}</td>
-      <td style="padding:10px 12px;border:1px solid #e5e7eb">${v}</td>
-    </tr>`).join('');
+  var actionsHtml = (opts && opts.buttons && opts.buttons.length)
+    ? actionButtonsHtml_(opts.buttons)
+    : '<div style="text-align:center;margin-top:18px">' +
+        '<a href="'+btnHref+'" style="display:inline-block;padding:10px 16px;border-radius:8px;background:#0d6efd;color:#fff;text-decoration:none;font-weight:700">'+btnText+'</a>' +
+      '</div>';
 
-  return `
-  <center>
-    <table role="presentation" width="100%" style="background:#f6f7fb;padding:24px 0">
-      <tr><td>
-        <table role="presentation" width="680" align="center" style="margin:0 auto;border-collapse:separate;border-spacing:0 14px">
-          <tr><td align="center" style="font:700 14px -apple-system,Segoe UI,Roboto,Arial;color:#111">${APP_NAME}</td></tr>
-          <tr><td>
-            <table role="presentation" width="680" align="center" style="margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:14px">
-              <tr><td style="padding:24px 28px">
-                <div style="font:700 22px -apple-system,Segoe UI,Roboto,Arial;color:#111;text-align:center">${title}</div>
-                ${subtitle}
-                <table role="presentation" width="100%" style="border-collapse:collapse;margin-top:6px">${tableRows}</table>
-                <div style="text-align:center;margin-top:18px">
-                  <a href="${btnHref}" style="display:inline-block;padding:10px 16px;border-radius:8px;background:#0d6efd;color:#fff;text-decoration:none;font-weight:600">${btnText}</a>
-                </div>
-              </td></tr>
-            </table>
-          </td></tr>
-        </table>
-      </td></tr>
-    </table>
-  </center>`;
+  var tableRows = rows.map(function(pair){
+    return '<tr>' +
+      '<td style="width:220px;padding:10px 12px;border:1px solid #e5e7eb;background:#f9fafb;color:#6b7280">'+pair[0]+'</td>' +
+      '<td style="padding:10px 12px;border:1px solid #e5e7eb">'+pair[1]+'</td>' +
+    '</tr>';
+  }).join('');
+
+  return '' +
+  '<center>' +
+    '<table role="presentation" width="100%" style="background:#f6f7fb;padding:24px 0">' +
+      '<tr><td>' +
+        '<table role="presentation" width="680" align="center" style="margin:0 auto;border-collapse:separate;border-spacing:0 14px">' +
+          '<tr><td align="center" style="font:700 14px -apple-system,Segoe UI,Roboto,Arial;color:#111">'+APP_NAME+'</td></tr>' +
+          '<tr><td>' +
+            '<table role="presentation" width="680" align="center" style="margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:14px">' +
+              '<tr><td style="padding:24px 28px">' +
+                '<div style="font:700 22px -apple-system,Segoe UI,Roboto,Arial;color:#111;text-align:center">'+title+'</div>' +
+                subtitle +
+                '<table role="presentation" width="100%" style="border-collapse:collapse;margin-top:6px">'+tableRows+'</table>' +
+                actionsHtml +
+              '</td></tr>' +
+            '</table>' +
+          '</td></tr>' +
+        '</table>' +
+      '</td></tr>' +
+    '</table>' +
+  '</center>';
 }
+
 
 /* ---------- Per-event notifiers ---------- */
 
 // Approval queued: controllers only + requester gets a separate email
 function notifyPendingCreated(ctx){
-  const r = ctx.rec;
-  const typeNice = friendlyType(r.type);
+  var r = ctx.rec;
+  var typeNice = friendlyType(r.type);
 
-  // 1) Controllers
-  const { to:toCtrls } = resolveRecipients(NE.PENDING, { controllersOnly:true });
-  if (toCtrls.length){
-    const html = cardEmail(
-      `Approval Needed — ${typeNice}`,
-      [
-        ['Type', typeNice],
-        ['SKU', safe(r.sku)],
-        ['Item', safe(r.name)],
-        ['Quantity Δ', safe(r.delta)],
-        ['Requested By', safe(ctx.by)],
-        ['Note', safe(r.note)],
-        ['Pending ID', safe(ctx.pendingId)],
-        ['Ledger ID', safe(ctx.linkId)]
-      ],
-      { subtitle:'A new request is waiting for your review.' }
-    );
-    sendMailSafe(toCtrls, `[Approval Needed] ${typeNice} ${r.sku || ''}`.trim(), html, []);
+  // 1) Controllers / approvers — send personalized email so each has their own signed link
+  var recips = resolveRecipients(NE.PENDING, { controllersOnly:true }).to;
+  if (recips.length){
+    recips.forEach(function(toEmail){
+      var approveUrl = makeActionLink_('approve', ctx.pendingId, toEmail);
+      var declineUrl = makeActionLink_('decline', ctx.pendingId, toEmail);
+
+      var html = cardEmail(
+        'Approval Needed — ' + typeNice,
+        [
+          ['Type', typeNice],
+          ['SKU', safe(r.sku)],
+          ['Item', safe(r.name)],
+          ['Quantity Δ', safe(r.delta)],
+          ['Requested By', safe(ctx.by)],
+          ['Note', safe(r.note)],
+          ['Pending ID', safe(ctx.pendingId)],
+          ['Ledger ID', safe(ctx.linkId)]
+        ],
+        {
+          subtitle: 'You can approve directly from this email.',
+          buttons: [
+            { text:'Approve', href: approveUrl, bg:'#16a34a' },
+            { text:'Decline', href: declineUrl, bg:'#dc2626' },
+            { text:'Open Web App', href: webAppUrl(), bg:'#0d6efd' }
+          ]
+        }
+      );
+      sendMailSafe([toEmail], ('[Approval Needed] ' + typeNice + ' ' + (r.sku || '')).trim(), html, []);
+    });
   }
 
   // 2) Requester copy: “submitted for approval”
   if (ctx.by && /@/.test(ctx.by)) {
-    const html2 = cardEmail(
-      `Submitted for Approval — ${typeNice}`,
+    var html2 = cardEmail(
+      'Submitted for Approval — ' + typeNice,
       [
         ['Status', 'Pending'],
         ['Type', typeNice],
@@ -643,7 +1032,7 @@ function notifyPendingCreated(ctx){
       ],
       { subtitle:'Your request has been queued and is awaiting controller approval.' }
     );
-    sendMailSafe([ctx.by], `[Submitted] ${typeNice} ${r.sku || ''}`.trim(), html2, []);
+    sendMailSafe([ctx.by], ('[Submitted] ' + typeNice + ' ' + (r.sku || '')).trim(), html2, []);
   }
 }
 
@@ -691,24 +1080,24 @@ function notifyRequesterResult(result, penRow){
     result === 'Voided'   ? 'Your request was voided (removed from the queue) by a controller.' :
     '';
 
-  const html = cardEmail(
-    `${result} — ${typeNice}`,
-    [
-      ['Type', typeNice],
-      ['SKU', safe(penRow.SKU)],
-      ['Item', safe(penRow.Name)],
-      ['UoM', safe(penRow.UoM)],
-      ['Quantity', safe(penRow.Qty)],
-      ['Δ', safe(penRow.Delta)],
-      ['Note', safe(penRow.Note)],
-      ['Pending ID', safe(penRow.PendingID)],
-      ['Ledger ID', safe(penRow.LinkID)]
-    ],
-    { subtitle }
-  );
+  const rows = [
+    ['Type', typeNice],
+    ['SKU', safe(penRow.SKU)],
+    ['Item', safe(penRow.Name)],
+    ['UoM', safe(penRow.UoM)],
+    ['Quantity', safe(penRow.Qty)],
+    ['Δ', safe(penRow.Delta)],
+    ['Note', safe(penRow.Note)],
+    // NEW: show reason if present (esp. Declined/Voided)
+    ['Reason', safe(penRow.Reason)],
+    ['Pending ID', safe(penRow.PendingID)],
+    ['Ledger ID', safe(penRow.LinkID)]
+  ];
 
+  const html = cardEmail(`${result} — ${typeNice}`, rows, { subtitle });
   sendMailSafe(to, `[${result}] ${typeNice} ${penRow.SKU || ''}`.trim(), html, []);
 }
+
 
 
 function notifyUserCreated(u){
@@ -889,6 +1278,31 @@ function setArchiveSpreadsheetId(idOrUrl){
 }
 
 // --- helpers to open the configured targets ---
+function ensureUsersTimestampColumnAndBackfill(){
+  const sh = sheet(SHEET_USERS);
+  // Make sure our canonical columns exist (adds any missing ones at the end)
+  ensureColumns(sh, ['UserID','Email','Name','Department','RequestedRole','Role','Status','CreatedAt']);
+
+  // Backfill missing CreatedAt
+  const lastRow = sh.getLastRow();
+  if (lastRow <= 1) return; // header only
+
+  const hdr = sh.getRange(1,1,1,sh.getLastColumn()).getValues()[0];
+  const createdCol = hdr.indexOf('CreatedAt') + 1;
+  if (createdCol <= 0) return;
+
+  const range = sh.getRange(2, createdCol, lastRow - 1, 1);
+  const vals  = range.getValues();
+  let dirty = false;
+  for (let i=0; i<vals.length; i++){
+    if (!vals[i][0]) {            // only fill blanks
+      vals[i][0] = nowISO();      // use ISO so the UI can format it consistently
+      dirty = true;
+    }
+  }
+  if (dirty) range.setValues(vals);
+}
+
 function getBackupFolder(){
   const id = SCRIPTPROP.getProperty(PROP_BACKUP_FOLDER_ID) || DEFAULT_BACKUP_FOLDER_ID;
   return DriveApp.getFolderById(id);
@@ -1051,4 +1465,35 @@ function nightlyMaintenance(){
   const backup = backupSpreadsheetCopy(14);                 // keep last 14 copies
   const arch   = archiveResolved({ olderThanDays:90, keepLatestRows:8000 });
   return { ok:true, backup, arch };
+}
+
+// Force Users sheet to canonical order and preserve data by header name.
+// Final: A..H = UserID, Email, Name, Department, RequestedRole, Role, Status, CreatedAt
+function normalizeUsersSheet(){
+  const sh = sheet(SHEET_USERS);
+  const WANT = ['UserID','Email','Name','Department','RequestedRole','Role','Status','CreatedAt'];
+
+  const lastRow = Math.max(1, sh.getLastRow());
+  const lastCol = Math.max(1, sh.getLastColumn());
+  const vals = sh.getRange(1, 1, lastRow, lastCol).getValues();
+
+  if (vals.length === 0) { sh.appendRow(WANT); return; }
+
+  const hdrIn  = (vals[0] || []).map(h => String(h||'').trim());
+  const rowsIn = vals.slice(1);
+  const idx = Object.fromEntries(hdrIn.map((h,i)=>[h,i]));
+
+  const out = [WANT];
+  rowsIn.forEach(r => out.push(WANT.map(h => (idx[h] != null) ? r[idx[h]] : '')));
+
+  // Rewrite in correct order
+  if (sh.getMaxColumns() < WANT.length) {
+    sh.insertColumnsAfter(sh.getMaxColumns(), WANT.length - sh.getMaxColumns());
+  }
+  sh.clear(); // contents + formatting
+  sh.getRange(1, 1, out.length, WANT.length).setValues(out);
+
+  // Trim extras to the right (if any)
+  const extra = sh.getLastColumn() - WANT.length;
+  if (extra > 0) sh.deleteColumns(WANT.length + 1, extra);
 }

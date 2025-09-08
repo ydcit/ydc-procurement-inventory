@@ -212,6 +212,7 @@
                 <label class="form-label">Requested Role</label>
                 <select id="caRole" class="form-select">
                   <option value="user">User (Requester)</option>
+                  <option value="manager">Inventory Manager</option>
                   <option value="controller">Controller (request)</option>
                 </select>
                 <div class="form-text">A controller will review and set your role on approval.</div>
@@ -239,7 +240,7 @@
           <div class="col-6 col-xl-3">
             <div class="card p-3">
               <div class="d-flex justify-content-between align-items-center">
-                <h6 class="mb-0">Active SKUs</h6>
+                <h6 id="kpiTitle1" class="mb-0">Active SKUs</h6>
                 <i class="fa-solid fa-barcode fs-5 text-secondary"></i>
               </div>
               <div id="kpiSkus" class="display-6 fw-bold">0</div>
@@ -248,7 +249,7 @@
           <div class="col-6 col-xl-3">
             <div class="card p-3">
               <div class="d-flex justify-content-between align-items-center">
-                <h6 class="mb-0">Total On-hand</h6>
+                <h6 id="kpiTitle2" class="mb-0">Total On-hand</h6>
                 <i class="fa-solid fa-box-open fs-5 text-secondary"></i>
               </div>
               <div id="kpiOnhand" class="display-6 fw-bold">0</div>
@@ -257,21 +258,21 @@
           <div class="col-6 col-xl-3">
             <div class="card p-3">
               <div class="d-flex justify-content-between align-items-center">
-                <h6 class="mb-0">Pending Approvals</h6>
+                <h6 id="kpiTitle3" class="mb-0">Pending Approvals</h6>
                 <i class="fa-solid fa-clipboard-list fs-5 text-secondary"></i>
               </div>
               <div id="kpiPending" class="display-6 fw-bold">0</div>
             </div>
           </div>
           <div class="col-6 col-xl-3">
-          <div class="card p-3">
-            <div class="d-flex justify-content-between align-items-center">
-              <h6 class="mb-0">Ledger Records</h6>
-              <i class="fa-solid fa-book fs-5 text-secondary"></i>
+            <div class="card p-3">
+              <div class="d-flex justify-content-between align-items-center">
+                <h6 id="kpiTitle4" class="mb-0">Ledger Records</h6>
+                <i class="fa-solid fa-book fs-5 text-secondary"></i>
+              </div>
+              <div id="kpiLedger" class="display-6 fw-bold">0</div>
             </div>
-            <div id="kpiLedger" class="display-6 fw-bold">0</div>
           </div>
-        </div>
         </div>
       </div>
 
@@ -281,21 +282,38 @@
           <div class="d-flex flex-wrap justify-content-between align-items-center">
             <div class="d-flex align-items-center gap-2">
               <span class="pill badge-soft"><i class="fa-solid fa-bolt"></i></span>
-                <h6 class="mb-0">Quick Actions</h6>
-              </div>
-              <div class="d-flex flex-wrap gap-2">
-              <button class="btn btn-primary btn-rounded" data-bs-toggle="modal" data-bs-target="#modalReceive"><i class="fa-solid fa-inbox me-2"></i>Item Inbound / Receiving</button>
-              <button class="btn btn-warning btn-rounded" data-bs-toggle="modal" data-bs-target="#modalIssue"><i class="fa-solid fa-truck-arrow-right me-2"></i>Item Outbound / Issuing</button>
-              <button class="btn btn-success btn-rounded" data-bs-toggle="modal" data-bs-target="#modalCreateSku"><i class="fa-solid fa-plus me-2"></i>Create SKU</button>
-              <button class="btn btn-light-alt btn-rounded" data-bs-toggle="modal" data-bs-target="#modalModifySku"><i class="fa-solid fa-pen-to-square me-2"></i>Modify Item</button>
-              <button class="btn btn-outline-danger btn-rounded" data-bs-toggle="modal" data-bs-target="#modalRetireSku"><i class="fa-solid fa-box-archive me-2"></i>Retire SKU</button>
+              <h6 class="mb-0">Quick Actions</h6>
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+              <!-- USER-ONLY -->
+              <button id="btnOpenRequest" class="btn btn-primary btn-rounded d-none"
+                      data-bs-toggle="modal" data-bs-target="#modalRequest">
+                <i class="fa-solid fa-cart-shopping me-2"></i>Request Item
+              </button>
+
+              <!-- CONTROLLER/MANAGER -->
+              <button id="btnOpenReceive" class="btn btn-primary btn-rounded" data-bs-toggle="modal" data-bs-target="#modalReceive">
+                <i class="fa-solid fa-inbox me-2"></i>Item Inbound / Receiving
+              </button>
+              <button id="btnOpenIssue" class="btn btn-warning btn-rounded" data-bs-toggle="modal" data-bs-target="#modalIssue">
+                <i class="fa-solid fa-truck-arrow-right me-2"></i>Item Outbound / Issuing
+              </button>
+              <button id="btnOpenCreate" class="btn btn-success btn-rounded" data-bs-toggle="modal" data-bs-target="#modalCreateSku">
+                <i class="fa-solid fa-plus me-2"></i>Create SKU
+              </button>
+              <button id="btnOpenModify" class="btn btn-light-alt btn-rounded" data-bs-toggle="modal" data-bs-target="#modalModifySku">
+                <i class="fa-solid fa-pen-to-square me-2"></i>Modify Item
+              </button>
+              <button id="btnOpenRetire" class="btn btn-outline-danger btn-rounded" data-bs-toggle="modal" data-bs-target="#modalRetireSku">
+                <i class="fa-solid fa-box-archive me-2"></i>Retire SKU
+              </button>
             </div>
           </div>
         </div>
       </div>
 
       <!-- Stock -->
-      <div class="col-12">
+      <div class="col-12" id="stockWrap">
         <div class="card p-3">
           <div class="d-flex justify-content-between align-items-center mb-2">
             <h6 class="mb-0">Stock Overview</h6>
@@ -304,6 +322,7 @@
               <select id="stockFilterStatus" class="form-select form-select-sm" style="width:120px">
                 <option value="">All Status</option>
                 <option value="Active">Active</option>
+                <option value="On Hold">On Hold</option>
                 <option value="Retired">Retired</option>
               </select>
               <select id="stockFilterUom" class="form-select form-select-sm" style="width:110px">
@@ -325,6 +344,36 @@
             </table>
           </div>
           <div id="pagerStock" class="d-flex justify-content-between align-items-center mt-2 small"></div>
+        </div>
+      </div>
+
+      <!-- My Requests (User) -->
+      <div class="col-12" id="myRequestsWrap" style="display:none">
+        <div class="card p-3">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <h6 class="mb-0">My Requests</h6>
+            <div class="filter-bar">
+              <input id="mineSearch" class="form-control form-control-sm search-input" placeholder="Search my requests" style="width:240px">
+              <select id="mineFilterStatus" class="form-select form-select-sm" style="width:140px">
+                <option value="">All Status</option>
+                <option value="Pending">Pending</option>
+                <option value="Approved">Approved</option>
+                <option value="Declined">Declined</option>
+                <option value="Voided">Voided</option>
+              </select>
+              <button id="mineFilterClear" class="btn btn-light-alt btn-sm">Clear</button>
+              <button id="btnDlMine" class="btn btn-light-alt btn-sm"><i class="fa-solid fa-download me-1"></i>Download CSV</button>
+            </div>
+          </div>
+          <div class="table-responsive">
+            <table class="table align-middle table-hover" id="tblMine">
+              <thead><tr>
+                <th>When</th><th>Status</th><th>SKU</th><th>Item</th><th class="text-end">Qty</th><th>UoM</th><th class="text-muted">Record ID</th><th class="text-end">Actions</th>
+              </tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div id="pagerMine" class="d-flex justify-content-between align-items-center mt-2 small"></div>
         </div>
       </div>
 
@@ -465,6 +514,30 @@
     </div>
   </div>
 
+  <!-- Confirm modal (Approve) -->
+<div class="modal fade" id="modalApprove" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">
+          <i class="fa-solid fa-circle-question me-2"></i>Confirm approval
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-2">Please review and confirm approval:</p>
+        <div id="approveSummary"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-light-alt" type="button" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-success" type="button" id="approveYes">
+          <i class="fa-solid fa-check me-1"></i>Confirm Approve
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
   <!-- Confirm modal (Decline/Void) -->
   <div class="modal fade" id="modalConfirm" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
@@ -474,7 +547,9 @@
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
-          <p id="confirmMessage" class="mb-0">Are you sure you want to decline this request?</p>
+          <p id="confirmMessage" class="mb-2">Are you sure you want to decline this request?</p>
+          <label class="form-label">Reason (required)</label>
+          <textarea id="confirmReason" class="form-control" rows="2" placeholder="Enter reason…"></textarea>
         </div>
         <div class="modal-footer">
           <button class="btn btn-light-alt" type="button" data-bs-dismiss="modal">Cancel</button>
@@ -483,6 +558,28 @@
       </div>
     </div>
   </div>
+
+  <!-- Confirm modal (User Accounts) -->
+  <div class="modal fade" id="modalUserConfirm" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="userConfirmTitle">
+            <i class="fa-solid fa-circle-question me-2"></i>Confirm user action
+          </h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div id="userConfirmSummary"></div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-light-alt" type="button" data-bs-dismiss="modal">Cancel</button>
+          <button class="btn btn-primary" type="button" id="userConfirmYes">Confirm</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
 
   <!-- Heads-up (Retired SKU) -->
   <div class="modal fade" id="modalRetiredHeadsUp" tabindex="-1" aria-hidden="true">
@@ -500,7 +597,10 @@
           the item will be <strong>reactivated</strong> and the stock will be received in one step.
         </div>
         <div class="modal-footer">
-          <button class="btn btn-primary" type="button" id="btnRetiredHeadsUpOk">Okay</button>
+          <button class="btn btn-light-alt" type="button" id="btnRetiredHeadsUpCancel" data-bs-dismiss="modal">Cancel</button>
+          <button class="btn btn-primary" type="button" id="btnRetiredHeadsUpOk">
+            <i class="fa-solid fa-check me-1"></i>Proceed
+          </button>
         </div>
       </div>
     </div>
@@ -543,11 +643,19 @@
             <div class="col-md-6"><label class="form-label">SKU</label><input id="msSku" class="form-control" list="skuList" placeholder="Search SKU" required><datalist id="skuList"></datalist></div>
             <div class="col-md-6"><label class="form-label">Item Name</label><input id="msName" class="form-control" required></div>
             <div class="col-md-6"><label class="form-label">Description</label><input id="msDesc" class="form-control"></div>
-            <div class="col-md-3">
-              <label class="form-label">UoM</label>
-              <select id="msUom" class="form-select"></select>
-            </div>
+            <div class="col-md-3"><label class="form-label">UoM</label><select id="msUom" class="form-select"></select></div>
             <div class="col-md-3"><label class="form-label">Location</label><input id="msLoc" class="form-control"></div>
+
+            <!-- NEW: Status -->
+            <div class="col-md-3">
+              <label class="form-label">Status</label>
+              <select id="msStatus" class="form-select">
+                <option value="Active">Active</option>
+                <option value="On Hold">On Hold</option>
+              </select>
+              <div class="form-text">Use <strong>On Hold</strong> to temporarily block issuance.</div>
+            </div>
+
             <div class="col-12"><label class="form-label">Remarks</label><textarea id="msNotes" class="form-control" rows="2"></textarea></div>
           </div>
         </div>
@@ -620,6 +728,82 @@
     </div>
   </div>
 
+  <!-- Request Item (for Requestors) -->
+  <div class="modal fade" id="modalRequest" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+      <form class="modal-content" id="formRequest">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="fa-solid fa-cart-shopping me-2"></i>Request Item</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+
+        <div class="modal-body">
+          <div class="row g-3">
+            <!-- Search by item name; value format: "SKU — Name" -->
+            <div class="col-md-8">
+              <label class="form-label">Find Item (type name)</label>
+              <input id="rqPick" class="form-control" list="rqList" placeholder="Type item name then pick from list" autocomplete="off">
+              <datalist id="rqList"></datalist>
+              <div class="form-text">Start typing the item name and pick the suggestion.</div>
+            </div>
+
+            <!-- Hidden SKU once selected -->
+            <input type="hidden" id="rqSku">
+
+            <div class="col-md-4">
+              <label class="form-label">Qty to Request</label>
+              <input id="rqQty" type="number" min="1" class="form-control" required>
+            </div>
+
+            <div class="col-md-6">
+              <label class="form-label">Item Name</label>
+              <input id="rqName" class="form-control" disabled>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Item Description</label>
+              <input id="rqDesc" class="form-control" disabled>
+            </div>
+
+            <div class="col-md-2">
+              <label class="form-label">UoM</label>
+              <input id="rqUom" class="form-control" disabled>
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">On-hand</label>
+              <input id="rqCur" class="form-control" disabled>
+            </div>
+
+            <div class="col-12">
+              <label class="form-label">Reason / Purpose</label>
+              <textarea id="rqReason" class="form-control" rows="2" placeholder="Brief justification" required></textarea>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button class="btn btn-light-alt" type="button" data-bs-dismiss="modal">Cancel</button>
+          <button class="btn btn-primary" type="submit">
+            <i class="fa-solid fa-paper-plane me-1"></i>Submit Request
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+  
+  <div class="modal fade" id="modalMyReq" tabindex="-1">
+  <div class="modal-dialog modal-md modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa-solid fa-circle-info me-2"></i>Request Details</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body"><div id="myReqSummary"></div></div>
+      <div class="modal-footer"><button class="btn btn-light-alt" data-bs-dismiss="modal">Close</button></div>
+    </div>
+  </div>
+</div>
+
+
   <!-- Templates -->
   <template id="tplStockRow">
     <tr>
@@ -652,6 +836,23 @@
     </tr>
   </template>
 
+  <template id="tplMineRow">
+    <tr>
+      <td class="when"></td>
+      <td class="status"></td>
+      <td class="sku"></td>
+      <td class="name"></td>
+      <td class="qty text-end"></td>
+      <td class="uom"></td>
+      <td class="recid text-muted"></td>
+      <td class="text-end">
+        <div class="btn-group btn-group-sm">
+          <button class="btn btn-light-alt btn-view-req" title="View"><i class="fa-solid fa-eye"></i></button>
+        </div>
+      </td>
+    </tr>
+  </template>
+
   <template id="tplLedgerRow">
     <tr>
       <td class="id"></td><td class="when"></td><td class="type"></td><td class="sku"></td><td class="name"></td>
@@ -664,7 +865,11 @@
     const $  = s => document.querySelector(s);
     const $$ = s => Array.from(document.querySelectorAll(s));
     const fmt = n => Number(n||0).toLocaleString();
-    const when = iso => new Date(iso).toLocaleString();
+    const when = iso => {
+      if (!iso) return '—';
+      const d = new Date(iso);
+      return isNaN(d) ? '—' : d.toLocaleString();
+    };
 
     function setLoading(btn, on, text){
       if(!btn) return;
@@ -725,9 +930,9 @@
     }
 
     // ---- Pagination (8 per page) ----
-    const PAGE = { stock: 1, pending: 1, ledger: 1 };
+    const PAGE = { stock: 1, pending: 1, ledger: 1, mine: 1 };
     const PAGE_SIZE = 8;
-    const LAST = { stock: [], pending: [], ledger: [] };
+    const LAST = { stock: [], pending: [], ledger: [], mine: [] };
 
     function getPage(list, page, size){
       const total = list.length;
@@ -752,7 +957,8 @@
     const RENDER = {
       stock:   ()=> renderItems(BOOT.items),
       pending: ()=> renderPending(BOOT.pending),
-      ledger:  ()=> renderLedger(BOOT.ledger)
+      ledger:  ()=> renderLedger(BOOT.ledger),
+      mine:    ()=> renderMine(BOOT.minePending || [])
     };
 
     // ---- UoM master list ----
@@ -772,6 +978,18 @@
       { key:'ID', header:'ID' },{ key:'When', header:'When' },{ key:'Type', header:'Type' },{ key:'SKU', header:'SKU' },
       { key:'Item', header:'Item' },{ key:'Delta', header:'Delta' },{ key:'UoM', header:'UoM' },
       { key:'Status', header:'Status' },{ key:'By', header:'By' },{ key:'Note', header:'Note' }
+    ];
+
+    const COLS_MINE = [
+      { key:'When', header:'When' },
+      { key:'Status', header:'Status' },
+      { key:'SKU', header:'SKU' },
+      { key:'Item', header:'Item' },
+      { key:'Qty', header:'Qty' },
+      { key:'UoM', header:'UoM' },
+      { key:'Note', header:'Note' },
+      { key:'Reason', header:'Reason' },
+      { key:'RecordID', header:'Record ID' }
     ];
 
     function populateUomSelect(selectEl, selectedValue){
@@ -1004,9 +1222,19 @@
           document.getElementById('loginScreen').style.display = 'none';
           document.getElementById('appScreen').style.display = 'block';
 
-          if ((payload.user.role || '') === 'controller') {
-            document.getElementById('toolsMenu')?.classList.remove('d-none');
+          const role = payload.user.role || '';
+          const isController = role === 'controller';
+          const canApprove = role === 'controller' || role === 'manager';
+
+          if (canApprove) {
             document.getElementById('approvalsWrap').style.display = 'block';
+          }
+
+          if (isController) {
+            document.getElementById('toolsMenu')?.classList.remove('d-none');
+          } else {
+            document.querySelector('button[data-bs-target="#tabUsers"]')?.closest('li')?.classList.add('d-none');
+            document.getElementById('tabUsers')?.classList.add('d-none');
           }
 
           // Build UI (silent mode skips loader messages)
@@ -1015,6 +1243,9 @@
           setMsg('Loading approvals…');  renderPending(payload.pending); renderUsersPending(payload.usersPending || []);
           setMsg('Building ledger…');    renderLedger(payload.ledger);
           setMsg('Final touches…');      fillSkuDatalist(payload.items);
+          fillRequestDatalist(payload.items);
+          wireRequestAutofill();
+          fillItemNameDatalist(payload.items);
 
           // Initialize UoM selects
           populateUomSelect(document.getElementById('csUom'), '');
@@ -1029,9 +1260,11 @@
           // Wire interactions
           wireSearch();
           wireSkuAutofill();
+          fillItemNameDatalist(payload.items);
           wireDownloads();
           setupReveals();
           enableRipples();
+          applyUserMode(payload);
 
           if (!silent) { requestAnimationFrame(() => setTimeout(() => { try { Loader.hide(); } catch(e) {} }, 120)); }
         })
@@ -1056,10 +1289,21 @@
       const dept = $('#caDept').value.trim();
       const role = $('#caRole').value;
       if (!name) return toast('Please enter your name.');
-      google.script.run.withSuccessHandler(res => {
-        toast(res.message || 'Submitted');
-        loadApp({silent:true});
-      }).withFailureHandler(e => toast(e.message)).requestAccount(name, dept, role);
+
+      const btn = $('#btnCreateAccount');
+      setLoading(btn, true, 'Submitting...');
+
+      google.script.run
+        .withSuccessHandler(res => {
+          setLoading(btn, false);
+          toast(res.message || 'Submitted');
+          loadApp({ silent: true });
+        })
+        .withFailureHandler(e => {
+          setLoading(btn, false);
+          toast(e.message, 'danger');
+        })
+        .requestAccount(name, dept, role);
     });
 
     // ---- Tools menu (controller) ----
@@ -1094,12 +1338,22 @@
       const dl=$('#skuList'); dl.innerHTML='';
       (items||[]).forEach(it=>{ const o=document.createElement('option'); o.value=it.SKU; o.label=`${it.Name} — ${it.Description||''}`; dl.appendChild(o); });
     }
+    function fillItemNameDatalist(items){
+      const dl = $('#itemListAll'); if (!dl) return;
+      dl.innerHTML = '';
+      (items || []).forEach(it => {
+        const o = document.createElement('option');
+        // Show "Name — SKU" so we can parse the SKU reliably
+        o.value = `${it.Name} — ${it.SKU}`;
+        dl.appendChild(o);
+      });
+    }
     function fillRetireDatalist(items){
       const dl = $('#skuListRetire'); if (!dl) return;
       dl.innerHTML = '';
       (items||[])
-        .filter(it => Number(it.Qty || 0) === 0 && String(it.Status) === 'Active')
-        .forEach(it => {
+        .filter(it => Number(it.Qty || 0) === 0 && (String(it.Status) === 'Active' || String(it.Status) === 'On Hold'))
+        .forEach(it => {  
           const o = document.createElement('option');
           o.value = it.SKU;
           o.label = `${it.Name} — ${it.Description || ''} (0 ${it.UoM || ''})`;
@@ -1144,22 +1398,35 @@
         frag.querySelector('.uom').textContent = it.UoM || '';
         frag.querySelector('.qty').textContent = fmt(it.Qty || 0);
         frag.querySelector('.loc').textContent = it.Location || '';
-        frag.querySelector('.status').innerHTML = it.Status === 'Active'
+        const statusHtml = it.Status === 'Active'
           ? '<span class="badge text-bg-success">Active</span>'
-          : '<span class="badge text-bg-secondary">Retired</span>';
+          : (it.Status === 'On Hold'
+              ? '<span class="badge text-bg-warning text-dark">On Hold</span>'
+              : '<span class="badge text-bg-secondary">Retired</span>');
+        frag.querySelector('.status').innerHTML = statusHtml;
 
         frag.querySelector('.btn-view').addEventListener('click', ()=> openItemDetails(it));
-        frag.querySelector('.btn-edit').addEventListener('click', ()=>{
-          $('#msSku').value = it.SKU; $('#msName').value = it.Name; $('#msDesc').value = it.Description || '';
-          $('#msUom').value = it.UoM || ''; $('#msLoc').value = it.Location || '';
-        });
 
-        const btnRet = frag.querySelector('.btn-retire');
-        btnRet.disabled = (Number(it.Qty) > 0) || it.Status !== 'Active';
-        btnRet.addEventListener('click', ()=>{
-          $('#rsSku').value = it.SKU;
-          bootstrap.Modal.getOrCreateInstance('#modalRetireSku').show();
-        });
+        if (window.IS_USER) {
+          // Hide edit/retire for Users
+          frag.querySelector('.btn-edit')?.remove();
+          frag.querySelector('.btn-retire')?.remove();
+        } else {
+          frag.querySelector('.btn-edit').addEventListener('click', ()=>{
+            $('#msSku').value = it.SKU;
+            $('#msName').value = it.Name;
+            $('#msDesc').value = it.Description || '';
+            $('#msUom').value  = it.UoM || '';
+            $('#msLoc').value  = it.Location || '';
+            $('#msStatus').value = it.Status || 'Active';
+          });
+          const btnRet = frag.querySelector('.btn-retire');
+          btnRet.disabled = (Number(it.Qty) > 0) || it.Status !== 'Active';
+          btnRet.addEventListener('click', ()=>{
+            $('#rsSku').value = it.SKU;
+            bootstrap.Modal.getOrCreateInstance('#modalRetireSku').show();
+          });
+        }
 
         tb.appendChild(frag);
         requestAnimationFrame(()=> row.classList.add('show'));
@@ -1219,7 +1486,7 @@
         const btnDecline = frag.querySelector('.btn-decline');
         const btnVoid    = frag.querySelector('.btn-void'); 
 
-        btnApprove.addEventListener('click', ()=> handleApprove(btnApprove, p.PendingID));
+        btnApprove.addEventListener('click', ()=> openApproveConfirm(btnApprove, p));
         btnDecline.addEventListener('click', ()=> openActionConfirm(btnDecline, p.PendingID, p, 'decline'));
         btnVoid   ?.addEventListener('click', ()=> openActionConfirm(btnVoid,    p.PendingID, p, 'void'));
 
@@ -1254,6 +1521,10 @@
       const msgEl = document.getElementById('confirmMessage');
       if (msgEl) msgEl.textContent = msg;
 
+      // NEW: clear reason input each time and focus it on show
+      const reasonEl = document.getElementById('confirmReason');
+      if (reasonEl) reasonEl.value = '';
+
       const yes = document.getElementById('confirmYes');
       if (yes){
         if (action === 'void'){
@@ -1264,15 +1535,20 @@
           yes.innerHTML = `<i class="fa-solid fa-xmark me-1"></i>Confirm Decline`;
         }
       }
-      bootstrap.Modal.getOrCreateInstance('#modalConfirm').show();
+      const m = bootstrap.Modal.getOrCreateInstance('#modalConfirm');
+      m.show();
+      setTimeout(()=> reasonEl?.focus(), 200);
     }
 
     document.getElementById('confirmYes').addEventListener('click', ()=>{
+      const ctx = confirmCtx; if (!ctx) return;
+
+      const reason = (document.getElementById('confirmReason')?.value || '').trim();
+      if (!reason) { toast('Reason is required.','danger'); document.getElementById('confirmReason')?.focus(); return; }
+
       const modalEl = document.getElementById('modalConfirm');
       const inst = bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl);
       inst.hide();
-
-      const ctx = confirmCtx; if (!ctx) return;
 
       const verb = ctx.action === 'void' ? 'Voiding...' : 'Declining...';
       setLoading(ctx.btn, true, verb);
@@ -1288,102 +1564,313 @@
       };
 
       if (ctx.action === 'void'){
-        google.script.run.withSuccessHandler(()=> done('Voided')).withFailureHandler(fail).voidPending(ctx.id);
+        google.script.run.withSuccessHandler(()=> done('Voided')).withFailureHandler(fail).voidPending(ctx.id, reason);
       } else {
-        google.script.run.withSuccessHandler(()=> done('Declined')).withFailureHandler(fail).declinePending(ctx.id);
+        google.script.run.withSuccessHandler(()=> done('Declined')).withFailureHandler(fail).declinePending(ctx.id, reason);
       }
     });
 
-    // NEW: Pending users table
-    function renderUsersPending(users){
-      const tb = $('#tblUsersPending tbody'); if (!tb) return;
-      tb.innerHTML = '';
-      (users||[]).forEach(u=>{
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td>${when(u.CreatedAt)}</td>
-          <td>${u.Name||''}</td>
-          <td>${u.Email||''}</td>
-          <td>${u.Department||''}</td>
-          <td>${u.RequestedRole||'user'}</td>
-          <td>
-            <select class="form-select form-select-sm roleSel">
-              <option value="user"${(u.RequestedRole||'user')==='user'?' selected':''}>user</option>
-              <option value="controller"${u.RequestedRole==='controller'?' selected':''}>controller</option>
-            </select>
-          </td>
-          <td class="text-end">
-            <div class="btn-group btn-group-sm">
-              <button class="btn btn-success btn-approve-user"><i class="fa-solid fa-check"></i></button>
-              <button class="btn btn-danger btn-disable-user"><i class="fa-solid fa-user-slash"></i></button>
-            </div>
-          </td>`;
-        const roleSel = tr.querySelector('.roleSel');
-        tr.querySelector('.btn-approve-user').addEventListener('click', ()=>{
-          google.script.run.withSuccessHandler(()=>{ toast('User approved'); loadApp({silent:true}); })
-            .withFailureHandler(e=>toast(e.message)).setUserStatus(u.UserID, roleSel.value, 'Active');
-        });
-        tr.querySelector('.btn-disable-user').addEventListener('click', ()=>{
-          google.script.run.withSuccessHandler(()=>{ toast('User disabled'); loadApp({silent:true}); })
-            .withFailureHandler(e=>toast(e.message)).setUserStatus(u.UserID, roleSel.value, 'Disabled');
-        });
-        tb.appendChild(tr);
+    document.getElementById('formRequest')?.addEventListener('submit', e=>{
+      e.preventDefault();
+      const sku = $('#riSku').value.trim();
+      const qty = Number($('#riQty').value);
+      const reason = $('#riReason').value.trim();
+      if (!sku || !(qty > 0)) { toast('Please choose a SKU and quantity.','danger'); return; }
+
+      const emp  = (BOOT.user?.name || BOOT.user?.email || '').trim();
+      const dept = (BOOT.user?.department || '').trim();
+
+      const btn = e.submitter;
+      setLoading(btn, true, 'Submitting...');
+      google.script.run
+        .withSuccessHandler(()=>{
+          setLoading(btn, false);
+          toast('Request submitted for approval','success');
+          e.target.reset();
+          bootstrap.Modal.getOrCreateInstance('#modalRequestItem').hide();
+          loadApp({ silent:true });
+        })
+        .withFailureHandler(err=>{
+          setLoading(btn, false);
+          toast(err.message,'danger');
+        })
+        .actionIssue(sku, qty, emp, dept, reason);
+    });
+
+
+  function renderUsersPending(users){
+    const tb = document.querySelector('#tblUsersPending tbody');
+    if (!tb) return;
+    tb.innerHTML = '';
+
+    (users || []).forEach(u => {
+      const requested = u.RequestedRole || 'user';
+
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${when(u.CreatedAt)}</td>
+        <td>${u.Name || ''}</td>
+        <td>${u.Email || ''}</td>
+        <td>${u.Department || ''}</td>
+        <td>${friendlyRole(requested)}</td>
+        <td>
+          <select class="form-select form-select-sm roleSel">
+            <option value="user"${requested==='user' ? ' selected' : ''}>User (Requester)</option>
+            <option value="manager"${requested==='manager' ? ' selected' : ''}>Inventory Manager</option>
+            <option value="controller"${requested==='controller' ? ' selected' : ''}>Controller</option>
+          </select>
+        </td>
+        <td class="text-end">
+          <div class="btn-group btn-group-sm">
+            <button class="btn btn-success btn-approve-user" title="Approve">
+              <i class="fa-solid fa-check"></i>
+            </button>
+            <button class="btn btn-danger btn-disable-user" title="Disable">
+              <i class="fa-solid fa-user-slash"></i>
+            </button>
+          </div>
+        </td>
+      `;
+
+      const roleSel    = tr.querySelector('.roleSel');
+      const approveBtn = tr.querySelector('.btn-approve-user');
+      const disableBtn = tr.querySelector('.btn-disable-user');
+
+      approveBtn.addEventListener('click', () => {
+        openUserConfirm(approveBtn, u, roleSel.value, 'approve');
+      });
+      disableBtn.addEventListener('click', () => {
+        openUserConfirm(disableBtn, u, roleSel.value, 'disable');
+      });
+
+      tb.appendChild(tr);
+    });
+  }
+
+
+  function renderLedger(list){
+    // If requestor, restrict ledger to their own ISSUE requests
+    var isUser = (typeof IS_USER !== 'undefined' ? IS_USER : (BOOT && BOOT.user && BOOT.user.role === 'user'));
+    if (isUser && BOOT && BOOT.user && BOOT.user.email) {
+      var myEmail = String(BOOT.user.email || '').toLowerCase();
+      list = (list || []).filter(function(l){
+        return String(l.By || '').toLowerCase() === myEmail && String(l.Type) === 'ISSUE';
       });
     }
 
-    function renderLedger(list){
-      const q = ($('#ledgerSearch').value||'').toLowerCase();
-      const tb = $('#tblLedger tbody'); tb.innerHTML='';
+    var q = ($('#ledgerSearch').value || '').toLowerCase();
+    var tb = $('#tblLedger tbody'); tb.innerHTML = '';
 
-      const fType   = $('#ledgerFilterType')?.value || '';
-      const fStatus = $('#ledgerFilterStatus')?.value || '';
-      const dFromV  = $('#ledgerFrom')?.value || '';
-      const dToV    = $('#ledgerTo')?.value || '';
-      const dFrom   = dFromV ? new Date(dFromV + 'T00:00:00') : null;
-      const dTo     = dToV   ? new Date(dToV   + 'T23:59:59') : null;
+    var fType   = $('#ledgerFilterType') ? $('#ledgerFilterType').value : '';
+    var fStatus = $('#ledgerFilterStatus') ? $('#ledgerFilterStatus').value : '';
+    var dFromV  = $('#ledgerFrom') ? $('#ledgerFrom').value : '';
+    var dToV    = $('#ledgerTo') ? $('#ledgerTo').value : '';
+    var dFrom   = dFromV ? new Date(dFromV + 'T00:00:00') : null;
+    var dTo     = dToV   ? new Date(dToV   + 'T23:59:59') : null;
 
-      const filtered = (list||[]).filter(l => {
-        const hay = `${l.ID} ${l.Type} ${l.SKU||''} ${l.Item||''} ${l.Status} ${l.By||''} ${l.Note||''}`.toLowerCase();
+    var filtered = (list || []).filter(function(l){
+      var hay = (l.ID + ' ' + l.Type + ' ' + (l.SKU||'') + ' ' + (l.Item||'') + ' ' + l.Status + ' ' + (l.By||'') + ' ' + (l.Note||'')).toLowerCase();
+      if (q && hay.indexOf(q) === -1) return false;
+      if (fType   && l.Type   !== fType)   return false;
+      if (fStatus && l.Status !== fStatus) return false;
+      if (dFrom && new Date(l.When) < dFrom) return false;
+      if (dTo   && new Date(l.When) > dTo)   return false;
+      return true;
+    }).reverse();
+    LAST.ledger = filtered;
+
+    var pg = getPage(filtered, PAGE.ledger, PAGE_SIZE);
+    PAGE.ledger = pg.page;
+
+    pg.rows.forEach(function(l){
+      var frag = document.importNode($('#tplLedgerRow').content, true);
+      var row  = frag.querySelector('tr');
+      row.classList.add('anim-row');
+
+      frag.querySelector('.id').textContent     = l.ID;
+      frag.querySelector('.when').textContent   = when(l.When);
+      frag.querySelector('.type').innerHTML     = typeBadge(l.Type);
+      frag.querySelector('.sku').textContent    = l.SKU || '';
+      frag.querySelector('.name').textContent   = l.Item || '';
+      frag.querySelector('.delta').innerHTML    = qtyBadge(l.Delta);
+      frag.querySelector('.uom').textContent    = l.UoM || '';
+      frag.querySelector('.status').innerHTML   = statusBadge(l.Status);
+      frag.querySelector('.by').textContent     = l.By || '';
+      frag.querySelector('.note').textContent   = l.Note || '';
+
+      tb.appendChild(frag);
+      requestAnimationFrame(function(){ row.classList.add('show'); });
+    });
+
+    renderPager('ledger', 'pagerLedger', pg);
+  }
+
+    let IS_USER = false;
+
+    function buildSummaryTable(rows){
+      return `
+        <table class="table table-sm align-middle mb-0">
+          <tbody>
+            ${rows.map(([k,v])=>`
+              <tr>
+                <th class="text-secondary" style="width:180px">${k}</th>
+                <td>${v ?? '—'}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>`;
+    }
+
+    function openMyReqDetails(rec){
+      const rows = [
+        ['Status', rec.Status || '—'],
+        ['When', when(rec.When)],
+        ['SKU', rec.SKU || '—'],
+        ['Item', rec.Item || rec.Name || '—'],
+        ['Qty',  rec.Qty ?? '—'],
+        ['UoM',  rec.UoM || '—'],
+        ['Note', rec.Note || '—'],
+        ['Reason', rec.Reason || '—'],
+        ['Record ID', rec.RecordID || rec.ID || '—']
+      ];
+      $('#myReqSummary').innerHTML = buildSummaryTable(rows);
+      bootstrap.Modal.getOrCreateInstance('#modalMyReq').show();
+    }
+
+    function renderMine(minePending){
+      // Only show ISSUE requests from the Pending sheet
+      const rows = (minePending || [])
+        .filter(p => p.Type === 'ISSUE')
+        .map(p => ({
+          When: p.When,
+          Status: p.Status,
+          SKU: p.SKU,
+          Item: p.Name,
+          Qty: (p.Qty !== '' && p.Qty != null) ? p.Qty : p.Delta,
+          UoM: p.UoM,
+          Note: p.Note,
+          Reason: p.Reason,
+          RecordID: p.PendingID
+        }))
+        .sort((a,b) => new Date(b.When) - new Date(a.When));
+
+      const q = ($('#mineSearch').value||'').toLowerCase();
+      const fStatus = $('#mineFilterStatus')?.value || '';
+
+      const filtered = rows.filter(r=>{
+        const hay = `${r.SKU} ${r.Item} ${r.Status} ${r.Note||''} ${r.Reason||''}`.toLowerCase();
         if (q && !hay.includes(q)) return false;
-        if (fType   && l.Type   !== fType)   return false;
-        if (fStatus && l.Status !== fStatus) return false;
-        if (dFrom && new Date(l.When) < dFrom) return false;
-        if (dTo   && new Date(l.When) > dTo)   return false;
+        if (fStatus && r.Status !== fStatus) return false;
         return true;
-      }).reverse();
-      LAST.ledger = filtered;
+      });
 
-      const pg = getPage(filtered, PAGE.ledger, PAGE_SIZE);
-      PAGE.ledger = pg.page;
+      LAST.mine = filtered;
+      const pg = getPage(filtered, PAGE.mine, PAGE_SIZE);
+      PAGE.mine = pg.page;
 
-      pg.rows.forEach(l=>{
-        const frag = document.importNode($('#tplLedgerRow').content, true);
+      const tb = $('#tblMine tbody'); tb.innerHTML = '';
+      pg.rows.forEach(rec=>{
+        const frag = document.importNode($('#tplMineRow').content, true);
         const row  = frag.querySelector('tr');
         row.classList.add('anim-row');
 
-        frag.querySelector('.id').textContent     = l.ID;
-        frag.querySelector('.when').textContent   = when(l.When);
-        frag.querySelector('.type').innerHTML     = typeBadge(l.Type);
-        frag.querySelector('.sku').textContent    = l.SKU || '';
-        frag.querySelector('.name').textContent   = l.Item || '';
-        frag.querySelector('.delta').innerHTML    = qtyBadge(l.Delta);
-        frag.querySelector('.uom').textContent    = l.UoM || '';
-        frag.querySelector('.status').innerHTML   = statusBadge(l.Status);
-        frag.querySelector('.by').textContent     = l.By || '';
-        frag.querySelector('.note').textContent   = l.Note || '';
+        frag.querySelector('.when').textContent   = when(rec.When);
+        frag.querySelector('.status').innerHTML   = statusBadge(rec.Status);
+        frag.querySelector('.sku').textContent    = rec.SKU || '';
+        frag.querySelector('.name').textContent   = rec.Item || '';
+        frag.querySelector('.qty').textContent    = (rec.Qty === '' || rec.Qty == null) ? '—' : fmt(rec.Qty);
+        frag.querySelector('.uom').textContent    = rec.UoM || '';
+        frag.querySelector('.recid').textContent  = rec.RecordID || '';
+
+        frag.querySelector('.btn-view-req').addEventListener('click', ()=> openMyReqDetails(rec));
 
         tb.appendChild(frag);
         requestAnimationFrame(()=> row.classList.add('show'));
       });
 
-      renderPager('ledger', 'pagerLedger', pg);
+      renderPager('mine', 'pagerMine', pg);
+    }
+
+    function populateMineFilters(minePending){
+      const statuses = Array.from(new Set((minePending || [])
+        .filter(p => p.Type === 'ISSUE')
+        .map(p => p.Status)))
+        .filter(Boolean)
+        .sort();
+
+      const sel = $('#mineFilterStatus');
+      if (sel) {
+        const keepFirst = sel.querySelector('option[value=""]')?.outerHTML || '<option value="">All Status</option>';
+        sel.innerHTML = keepFirst + statuses.map(s => `<option value="${s}">${s}</option>`).join('');
+      }
+    }
+
+    // Apply role-based UI changes
+    function applyUserMode(payload){
+      IS_USER = (payload.user?.role === 'user');
+
+      // KPI titles
+      const t1 = $('#kpiTitle1'), t2 = $('#kpiTitle2'), t3 = $('#kpiTitle3'), t4 = $('#kpiTitle4');
+
+      // Quick actions buttons
+      const idsAdmin = ['btnOpenReceive','btnOpenIssue','btnOpenCreate','btnOpenModify','btnOpenRetire'];
+      const btnReq = $('#btnOpenRequest');
+
+      const stockWrap = document.getElementById('stockWrap');
+
+      if (IS_USER){
+        idsAdmin.forEach(id => document.getElementById(id)?.classList.add('d-none'));
+        btnReq?.classList.remove('d-none');
+
+        // Hide Stock Overview for requestors
+        if (stockWrap) stockWrap.classList.add('d-none');
+
+        if (t1) t1.textContent = 'Open Requests';
+        if (t2) t2.textContent = 'Approved (30d)';
+        if (t3) t3.textContent = 'Declined (30d)';
+        if (t4) t4.textContent = 'Total Requested';
+
+        // Show My Requests section
+        $('#myRequestsWrap').style.display = 'block';
+
+        // Render counts for the user
+        const mineP = payload.minePending || [];
+        const mineL = payload.mineLedger  || [];
+        const now = new Date();
+        const cutoff = new Date(now.getTime() - 30*24*60*60*1000);
+
+        const open = mineP.filter(p => p.Type==='ISSUE' && p.Status==='Pending').length;
+        const approved30 = mineL.filter(l => l.Type==='ISSUE' && l.Status==='Approved' && new Date(l.When) >= cutoff).length;
+        const declined30 = mineL.filter(l => l.Type==='ISSUE' && l.Status==='Declined' && new Date(l.When) >= cutoff).length
+                        + mineP.filter(p => p.Type==='ISSUE' && p.Status==='Declined' && new Date(p.When) >= cutoff).length;
+        const total = mineL.filter(l => l.Type==='ISSUE').length + mineP.filter(p => p.Type==='ISSUE').length;
+
+        animateNumber($('#kpiSkus'),   0, open);
+        animateNumber($('#kpiOnhand'), 0, approved30);
+        animateNumber($('#kpiPending'),0, declined30);
+        animateNumber($('#kpiLedger'), 0, total);
+
+        // Filters + table
+        populateMineFilters(mineP);
+        renderMine(mineP);
+      } else {
+        // Admin/manager mode
+        idsAdmin.forEach(id => document.getElementById(id)?.classList.remove('d-none'));
+        btnReq?.classList.add('d-none');
+        if (stockWrap) stockWrap.classList.remove('d-none');
+        if (t1) t1.textContent = 'Active SKUs';
+        if (t2) t2.textContent = 'Total On-hand';
+        if (t3) t3.textContent = 'Pending Approvals';
+        if (t4) t4.textContent = 'Ledger Records';
+        $('#myRequestsWrap').style.display = 'none';
+      }
     }
 
     function openItemDetails(it){
       const el = $('#itemDetailsBody'); if (!el) return;
-      const statusBadge = (it.Status === 'Active')
-        ? '<span class="badge text-bg-success">Active</span>'
-        : '<span class="badge text-bg-secondary">Retired</span>';
+      const statusBadge =
+        it.Status === 'Active'  ? '<span class="badge text-bg-success">Active</span>' :
+        it.Status === 'On Hold' ? '<span class="badge text-bg-warning text-dark">On Hold</span>' :
+                                  '<span class="badge text-bg-secondary">Retired</span>';
 
       el.innerHTML = `
         <div class="p-3 border rounded-3">
@@ -1462,6 +1949,19 @@
         ['ledgerFilterType','ledgerFilterStatus','ledgerFrom','ledgerTo'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
         PAGE.ledger=1; renderLedger(BOOT.ledger);
       });
+
+      // --- My Requests ---
+      $('#mineSearch')?.addEventListener('input', ()=>{
+        PAGE.mine=1; renderMine(BOOT.minePending || []);
+      });
+      $('#mineFilterStatus')?.addEventListener('change', ()=>{
+        PAGE.mine=1; renderMine(BOOT.minePending || []);
+      });
+      $('#mineFilterClear')?.addEventListener('click', ()=>{
+        $('#mineSearch').value='';
+        const s = $('#mineFilterStatus'); if (s) s.value='';
+        PAGE.mine=1; renderMine(BOOT.minePending || []);
+      });
     }
 
     // -------- Helpers --------
@@ -1474,7 +1974,11 @@
       bind('btnDlStock',   ()=> downloadCSV('stock.csv',   LAST.stock,   COLS_STOCK));
       bind('btnDlPending', ()=> downloadCSV('pending.csv', LAST.pending, COLS_PENDING));
       bind('btnDlLedger',  ()=> downloadCSV('ledger.csv',  LAST.ledger,  COLS_LEDGER));
+      bind('btnDlMine',    ()=> downloadCSV('my-requests.csv', (LAST.mine||[]).map(r=>({
+        When:r.When, Status:r.Status, SKU:r.SKU, Item:r.Item, Qty:r.Qty, UoM:r.UoM, Note:r.Note||'', Reason:r.Reason||'', RecordID:r.RecordID
+      })), COLS_MINE));
     }
+
     function wireSkuAutofill(){
       const onFill = (prefix) => {
         const sku = document.querySelector(`#${prefix}Sku`)?.value.trim() || '';
@@ -1494,12 +1998,307 @@
           }
         });
       };
-      ['rc','is','ms'].forEach(prefix=>{
+      ['rc','is','ms','ri'].forEach(prefix=>{
         const el = document.querySelector(`#${prefix}Sku`);
         if (!el) return;
         el.addEventListener('input',  ()=> onFill(prefix));
         el.addEventListener('change', ()=> onFill(prefix));
       });
+    }
+
+    // --- FIND by "SKU — Name" OR direct SKU OR Name ---
+    function findItemBySkuOrName(input){
+      var s = String(input || '').trim();
+      if (!s) return null;
+
+      // If user picked a value like "YDC-PROC-0001 — RJ45 Cat6 Cable"
+      var splitIdx = s.indexOf(' — ');
+      var trySku = splitIdx > -1 ? s.slice(0, splitIdx).trim() : s;
+
+      var items = (BOOT && BOOT.items) ? BOOT.items : [];
+
+      // 1) Exact SKU
+      var it = items.find(function(x){ return String(x.SKU) === trySku; });
+      if (it) return it;
+
+      // 2) Exact Name match
+      var lc = s.toLowerCase();
+      it = items.find(function(x){ return String(x.Name || '').toLowerCase() === lc; });
+      if (it) return it;
+
+      // 3) Contains Name
+      it = items.find(function(x){ return String(x.Name || '').toLowerCase().indexOf(lc) > -1; });
+      return it || null;
+    }
+
+    // --- Fill datalist for request search (only Active items) ---
+    function fillRequestDatalist(items){
+      var dl = document.getElementById('rqList');
+      if (!dl) return;
+      dl.innerHTML = '';
+      (items || []).filter(function(it){ return String(it.Status) === 'Active'; })
+        .forEach(function(it){
+          var o = document.createElement('option');
+          // Value a user picks → parseable: "SKU — Name"
+          o.value = it.SKU + ' — ' + it.Name;
+          // Label shows description as a hint
+          o.label = it.Description || '';
+          dl.appendChild(o);
+        });
+    }
+
+    // --- Wire Request modal auto-populate ---
+    function wireRequestAutofill(){
+      var inp = document.getElementById('rqPick');
+      if (!inp) return;
+
+      function clearFields(){
+        ['rqSku','rqName','rqDesc','rqUom','rqCur'].forEach(function(id){
+          var el = document.getElementById(id); if (el) el.value = '';
+        });
+      }
+
+      function refresh(){
+        var it = findItemBySkuOrName(inp.value);
+        clearFields();
+        if (!it) return;
+        document.getElementById('rqSku').value  = it.SKU;
+        document.getElementById('rqName').value = it.Name || '';
+        document.getElementById('rqDesc').value = it.Description || '';
+        document.getElementById('rqUom').value  = it.UoM || '';
+        document.getElementById('rqCur').value  = (it.Qty == null ? '' : it.Qty);
+      }
+
+      inp.addEventListener('input',  refresh);
+      inp.addEventListener('change', refresh);
+    }
+
+    // Submit "Request Item" → queues an ISSUE for approval
+    (function(){
+      var form = document.getElementById('formRequest');
+      if (!form) return;
+
+      form.addEventListener('submit', function(ev){
+        ev.preventDefault();
+
+        var sku     = (document.getElementById('rqSku').value || '').trim();
+        var qty     = Number(document.getElementById('rqQty').value || 0);
+        var reason  = (document.getElementById('rqReason').value || '').trim();
+
+        if (!sku){ toast('Please pick an item from the list.', 'danger'); return; }
+        if (!(qty > 0)){ toast('Enter a valid quantity.', 'danger'); return; }
+        if (!reason){ toast('Please provide a reason/purpose.', 'danger'); return; }
+
+        var emp  = (BOOT && BOOT.user && (BOOT.user.name || BOOT.user.email)) ? (BOOT.user.name || BOOT.user.email) : 'Requester';
+        var dept = (BOOT && BOOT.user && BOOT.user.department) ? BOOT.user.department : '';
+
+        var btn = form.querySelector('button[type="submit"]');
+        setLoading(btn, true, 'Submitting...');
+
+        google.script.run
+          .withSuccessHandler(function(){
+            setLoading(btn, false);
+            bootstrap.Modal.getOrCreateInstance('#modalRequest').hide();
+            toast('Request submitted for approval.', 'success');
+            loadApp({ silent: true });
+          })
+          .withFailureHandler(function(e){
+            setLoading(btn, false);
+            toast(e && e.message ? e.message : 'Failed to submit request.', 'danger');
+          })
+          .actionIssue(sku, qty, emp, dept, reason);
+      });
+    })();
+
+    function wireRequestSearch(){
+      const el = document.getElementById('riSearch');
+      if (!el) return;
+
+      const resolveSku = (txt) => {
+        const v = String(txt || '').trim();
+        if (!v) return null;
+        // Prefer pattern "... — SKU"
+        const m = v.match(/—\s*([A-Za-z0-9._-]+)\s*$/);
+        if (m) return m[1];
+        // Fallbacks: exact SKU, exact Name, partial Name
+        const n = v.toLowerCase();
+        const items = BOOT.items || [];
+        const bySkuExact = items.find(x => String(x.SKU).toLowerCase() === n);
+        if (bySkuExact) return bySkuExact.SKU;
+        const byNameExact = items.find(x => String(x.Name).toLowerCase() === n);
+        if (byNameExact) return byNameExact.SKU;
+        const byNamePartial = items.find(x => String(x.Name).toLowerCase().includes(n));
+        if (byNamePartial) return byNamePartial.SKU;
+        return null;
+      };
+
+      const fillFromSku = (sku) => {
+        const skuInput = document.getElementById('riSku');
+        if (!skuInput) return;
+        skuInput.value = sku;
+        // Trigger the existing autofill to populate name/desc/uom/cur
+        skuInput.dispatchEvent(new Event('input'));
+      };
+
+      const onPick = () => {
+        const sku = resolveSku(el.value);
+        if (sku) fillFromSku(sku);
+        else toast('Item not found. Try another name/keyword.','warning');
+      };
+
+      el.addEventListener('change', onPick);
+      el.addEventListener('blur', onPick);
+    }
+
+    // Map to a friendly type label (client-side)
+    function friendlyTypeTxt(t){
+      const m = {
+        CREATE_SKU: 'Create SKU',
+        MODIFY_SKU: 'Modify Item',
+        RETIRE_SKU: 'Retire SKU',
+        RECEIVE:    'Receive (Inbound)',
+        ISSUE:      'Issue (Outbound)'
+      };
+      return m[t] || t;
+    }
+
+    // Build a compact key/value table (used in approval confirm)
+    function buildSummaryTable(rows){
+      return `
+        <table class="table table-sm align-middle mb-0">
+          <tbody>
+            ${rows.map(([k,v])=>`
+              <tr>
+                <th class="text-secondary" style="width:180px">${k}</th>
+                <td>${v ?? '—'}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>`;
+    }
+
+    let userConfirmCtx = null; // { btn, user, role, action }
+
+    function openUserConfirm(btn, user, role, action){ // action: 'approve'|'disable'
+      userConfirmCtx = { btn, user, role, action };
+
+      const isApprove = action === 'approve';
+      const title = document.getElementById('userConfirmTitle');
+      const yes   = document.getElementById('userConfirmYes');
+
+      if (title) {
+        title.innerHTML =
+          `<i class="fa-solid fa-circle-question me-2"></i>${isApprove ? 'Confirm approval' : 'Confirm disable'}`;
+      }
+      if (yes){
+        yes.className = isApprove ? 'btn btn-success' : 'btn btn-danger';
+        yes.innerHTML = isApprove
+          ? '<i class="fa-solid fa-check me-1"></i>Confirm Approve'
+          : '<i class="fa-solid fa-user-slash me-1"></i>Confirm Disable';
+      }
+
+      const rows = [
+        ['Name', user.Name || '—'],
+        ['Email', user.Email || '—'],
+        ['Requested Role', friendlyRole(user.RequestedRole || 'user')],
+        ['Set Role', friendlyRole(role || 'user')],
+        ['Action', isApprove ? 'Approve (set Active)' : 'Disable']
+      ];
+      const sum = document.getElementById('userConfirmSummary');
+      if (sum) sum.innerHTML = buildSummaryTable(rows);
+
+      bootstrap.Modal.getOrCreateInstance('#modalUserConfirm').show();
+    }
+
+    // Confirm click
+    document.getElementById('userConfirmYes').addEventListener('click', ()=>{
+      const ctx = userConfirmCtx; if (!ctx) return;
+
+      const modalEl = document.getElementById('modalUserConfirm');
+      const inst = bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl);
+      inst.hide();
+
+      const verb = ctx.action === 'approve' ? 'Approving...' : 'Disabling...';
+      setLoading(ctx.btn, true, verb);
+
+      const newStatus = ctx.action === 'approve' ? 'Active' : 'Disabled';
+      google.script.run
+        .withSuccessHandler(()=>{
+          setLoading(ctx.btn, false);
+          toast(ctx.action === 'approve' ? 'User approved' : 'User disabled', ctx.action === 'approve' ? 'success' : 'warning');
+          loadApp({ silent:true });
+          userConfirmCtx = null;
+        })
+        .withFailureHandler(e=>{
+          setLoading(ctx.btn, false);
+          toast(e.message, 'danger');
+          userConfirmCtx = null;
+        })
+        .setUserStatus(ctx.user.UserID, ctx.role, newStatus);
+    });
+
+    let approveCtx = null; // { btn, id, rec }
+
+    function openApproveConfirm(btn, rec){
+      approveCtx = { btn, id: rec.PendingID, rec };
+
+      const rows = [
+        ['Type',        friendlyTypeTxt(rec.Type)],
+        ['SKU',         rec.SKU || '—'],
+      ];
+      const qtyVal = (rec.Qty !== '' && rec.Qty !== null && rec.Qty !== undefined && String(rec.Qty).trim() !== '')
+        ? rec.Qty
+        : (rec.Delta !== '' && rec.Delta !== null && rec.Delta !== undefined ? rec.Delta : null);
+      if (qtyVal !== null) rows.push(['Quantity', qtyVal]);
+      if (rec.UoM) rows.push(['UoM', rec.UoM]);
+      rows.push(['Requested By', rec.By || '—']);
+      rows.push(['Note', (rec.Note && rec.Note.trim()) ? rec.Note : '—']);
+
+      const sum = document.getElementById('approveSummary');
+      if (sum) sum.innerHTML = buildSummaryTable(rows);
+
+      // FIX: pass the element to Bootstrap
+      const modalEl = document.getElementById('modalApprove');
+      bootstrap.Modal.getOrCreateInstance(modalEl).show();
+    }
+
+    // Approve → server call
+    document.getElementById('approveYes').addEventListener('click', ()=>{
+      const ctx = approveCtx; if (!ctx || !ctx.btn) return;
+
+      // Show spinner on the **Approve** button inside the row
+      setLoading(ctx.btn, true, 'Approving...');
+
+      // FIX: hide the modal using the element API
+      const modalEl = document.getElementById('modalApprove');
+      const inst = bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl);
+      inst.hide();
+
+      // Call server
+      google.script.run
+        .withSuccessHandler(()=>{
+          setLoading(ctx.btn,false);
+          toast('Approved','success');
+          loadApp({silent:true});
+          approveCtx = null;
+        })
+        .withFailureHandler(e=>{
+          setLoading(ctx.btn,false);
+          toast(e.message,'danger');
+          approveCtx = null;
+        })
+        .approvePending(ctx.id);
+    });
+
+    // Pretty label for roles used in the Users tab
+    function friendlyRole(r){
+      const map = {
+        user: 'User (Requester)',
+        manager: 'Inventory Manager',
+        controller: 'Controller'
+      };
+      r = String(r || 'user');
+      return map[r] || r;
     }
 
     // ---- Submits -> server pending actions ----
@@ -1523,7 +2322,14 @@
 
     $('#formModifySku').addEventListener('submit', e=>{
       e.preventDefault();
-      const payload = { sku: $('#msSku').value.trim(), name: $('#msName').value.trim(), desc: $('#msDesc').value.trim(), uom: $('#msUom').value.trim(), loc: $('#msLoc').value.trim() };
+      const payload = {
+        sku: $('#msSku').value.trim(),
+        name: $('#msName').value.trim(),
+        desc: $('#msDesc').value.trim(),
+        uom:  $('#msUom').value.trim(),
+        loc:  $('#msLoc').value.trim(),
+        status: $('#msStatus').value.trim() // NEW
+      };
       const btn = e.submitter;
       setLoading(btn, true, 'Submitting...');
       google.script.run
@@ -1613,6 +2419,8 @@
       e.preventDefault();
       const sku=$('#isSku').value.trim(), qty=Number($('#isQty').value), emp=$('#isEmp').value.trim(), dept=$('#isDept').value.trim(), reason=$('#isReason').value.trim();
       const btn = e.submitter;
+      const it = lookupSku(sku);
+      if (it && String(it.Status) === 'On Hold') { toast('This item is On Hold and cannot be issued.','danger'); return; }
       setLoading(btn, true, 'Submitting...');
       google.script.run
         .withSuccessHandler(()=>{
@@ -1712,7 +2520,13 @@
         google.script.run
           .withSuccessHandler(payload => {
             BOOT = payload;  // keep your global in sync
-            renderCounts(payload.counts);
+            if ((payload.user?.role || '').toLowerCase() === 'user') {
+             renderUserKpis(payload);               // keep SLA/KPI tiles filtered for the user
+             renderMine(payload.minePending || []); // keep "My Requests" fresh too
+             populateMineFilters(payload.minePending || []);
+           } else {
+             renderCounts(payload.counts);          // admins/managers still see global counts
+           }
             renderItems(payload.items);
             renderPending(payload.pending);
             renderUsersPending(payload.usersPending || []);
