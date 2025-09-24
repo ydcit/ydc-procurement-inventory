@@ -97,7 +97,7 @@
     #modalSkuHistory .sku-history-table td.status { min-width:110px; white-space:nowrap; }
     #modalSkuHistory .sku-history-table td.by     { min-width:160px; white-space:nowrap; }
     #modalSkuHistory .sku-history-table td.id     { min-width:140px; white-space:nowrap; color:#6c757d; }
-    #modalSkuHistory .sku-history-table td.note { min-width:320px; white-space:normal; }
+    #modalSkuHistory .sku-history-table td.note { min-width:320px; white-space:pre-wrap; }
     #modalSkuHistory .sku-history-table thead th { position: sticky; top: 0; background:#fff; z-index: 1; }
 
     /* ===== Micro-animations ===== */
@@ -515,49 +515,58 @@
   </div>
 
   <!-- Confirm modal (Approve) -->
-<div class="modal fade" id="modalApprove" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title">
-          <i class="fa-solid fa-circle-question me-2"></i>Confirm approval
-        </h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        <p class="mb-2">Please review and confirm approval:</p>
-        <div id="approveSummary"></div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-light-alt" type="button" data-bs-dismiss="modal">Cancel</button>
-        <button class="btn btn-success" type="button" id="approveYes">
-          <i class="fa-solid fa-check me-1"></i>Confirm Approve
-        </button>
+  <div class="modal fade" id="modalApprove" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">
+            <i class="fa-solid fa-circle-question me-2"></i>Confirm Action — Approve
+          </h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-2 text-secondary">Please review the request summary, then confirm.</div>
+          <div id="approveSummary" class="mb-3"></div>
+          <label class="form-label">Comment (optional)</label>
+          <textarea id="approveComment" class="form-control" rows="2" placeholder="Add a brief note (optional)"></textarea>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-light-alt" type="button" data-bs-dismiss="modal">Cancel</button>
+          <button class="btn btn-success" type="button" id="approveYes">
+            <i class="fa-solid fa-check me-1"></i>Confirm Approve
+          </button>
+        </div>
       </div>
     </div>
   </div>
-</div>
 
-  <!-- Confirm modal (Decline/Void) -->
+  <!-- Confirm modal (Decline) -->
   <div class="modal fade" id="modalConfirm" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
       <div class="modal-content">
         <div class="modal-header">
-          <h5 class="modal-title"><i class="fa-solid fa-circle-question me-2"></i>Confirm action</h5>
+          <h5 class="modal-title">
+            <i class="fa-solid fa-circle-question me-2"></i>Confirm Action — Decline
+          </h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
-          <p id="confirmMessage" class="mb-2">Are you sure you want to decline this request?</p>
+          <div class="mb-2 text-secondary">Please review the request summary, then provide a reason.</div>
+          <div id="confirmMessage" class="mb-3"></div>
           <label class="form-label">Reason (required)</label>
-          <textarea id="confirmReason" class="form-control" rows="2" placeholder="Enter reason…"></textarea>
+          <textarea id="confirmReason" class="form-control" rows="2" placeholder="Enter reason…" required></textarea>
         </div>
         <div class="modal-footer">
           <button class="btn btn-light-alt" type="button" data-bs-dismiss="modal">Cancel</button>
-          <button class="btn btn-danger" type="button" id="confirmYes"><i class="fa-solid fa-xmark me-1"></i>Confirm Decline</button>
+          <button class="btn btn-danger" type="button" id="confirmYes">
+            <i class="fa-solid fa-xmark me-1"></i>Confirm Decline
+          </button>
         </div>
       </div>
     </div>
   </div>
+
+
 
   <!-- Confirm modal (User Accounts) -->
   <div class="modal fade" id="modalUserConfirm" tabindex="-1" aria-hidden="true">
@@ -610,28 +619,37 @@
   <div class="modal fade" id="modalCreateSku" tabindex="-1">
     <div class="modal-dialog modal-lg modal-dialog-centered">
       <form class="modal-content" id="formCreateSku">
-        <div class="modal-header"><h5 class="modal-title"><i class="fa-solid fa-plus me-2"></i>Create SKU</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="fa-solid fa-plus me-2"></i>Create SKUs</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+
         <div class="modal-body">
-          <div class="row g-3">
-            <div class="col-md-4">
-            <label class="form-label">SKU / Item Code <span class="text-secondary fw-normal">(auto-generated)</span></label>
-            <input id="csSku" class="form-control" placeholder="Auto-generated" disabled>
-            <div class="form-text">Auto-generated</div>
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <div class="text-secondary small">
+              Add up to <b>10</b> items. SKUs will be <b>auto-generated</b> on submit.
             </div>
-            <div class="col-md-8"><label class="form-label">Item Name</label><input id="csName" class="form-control" required></div>
-            <div class="col-md-6"><label class="form-label">Description</label><input id="csDesc" class="form-control"></div>
-            <div class="col-md-3">
-              <label class="form-label">UoM</label>
-              <select id="csUom" class="form-select"></select>
+            <div><button type="button" class="btn btn-sm btn-light-alt" id="csAddRow">
+              <i class="fa-solid fa-plus me-1"></i>Add item</button>
             </div>
-            <div class="col-md-3"><label class="form-label">Location</label><input id="csLoc" class="form-control" placeholder="Main WH"></div>
-            <div class="col-12"><label class="form-label">Remarks</label><textarea id="csNotes" class="form-control" rows="2"></textarea></div>
+          </div>
+
+          <div id="csRows" class="vstack gap-2"></div>
+
+          <div class="mt-3">
+            <label class="form-label">Remarks</label>
+            <textarea id="csNotes" class="form-control" rows="2" placeholder="Optional note…"></textarea>
           </div>
         </div>
-        <div class="modal-footer"><button class="btn btn-light-alt" type="button" data-bs-dismiss="modal">Cancel</button><button class="btn btn-success" type="submit">Submit for Approval</button></div>
+
+        <div class="modal-footer">
+          <button class="btn btn-light-alt" type="button" data-bs-dismiss="modal">Cancel</button>
+          <button class="btn btn-success" type="submit">Submit for Approval</button>
+        </div>
       </form>
     </div>
   </div>
+
 
   <!-- Modify SKU -->
   <div class="modal fade" id="modalModifySku" tabindex="-1">
@@ -688,45 +706,94 @@
   <div class="modal fade" id="modalReceive" tabindex="-1">
     <div class="modal-dialog modal-lg modal-dialog-centered">
       <form class="modal-content" id="formReceive">
-        <div class="modal-header"><h5 class="modal-title"><i class="fa-solid fa-inbox me-2"></i>Item Inbound / Receiving</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="fa-solid fa-inbox me-2"></i>Item Inbound / Receiving</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+
         <div class="modal-body">
-          <div class="row g-3">
-            <div class="col-md-6"><label class="form-label">SKU</label><input id="rcSku" class="form-control" list="skuList" required></div>
-            <div class="col-md-6"><label class="form-label">Item Name</label><input id="rcName" class="form-control" disabled></div>
-            <div class="col-md-6"><label class="form-label">Item Description</label><input id="rcDesc" class="form-control" disabled></div>
-            <div class="col-md-2"><label class="form-label">UoM</label><input id="rcUom" class="form-control" disabled></div>
-            <div class="col-md-2"><label class="form-label">Current Qty</label><input id="rcCur" class="form-control" disabled></div>
-            <div class="col-md-2"><label class="form-label">Qty to Receive</label><input id="rcQty" type="number" min="1" class="form-control" required></div>
-            <div class="col-12"><label class="form-label">Remarks</label><textarea id="rcNotes" class="form-control" rows="2"></textarea></div>
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <div class="text-secondary small">Add up to <b>10</b> items. No duplicate SKUs. Items must be <b>Active</b>.</div>
+            <div><button type="button" class="btn btn-sm btn-light-alt" id="rcAddRow"><i class="fa-solid fa-plus me-1"></i>Add item</button></div>
+          </div>
+
+          <div id="rcRows" class="vstack gap-2"></div>
+
+          <div class="mt-3">
+            <label class="form-label">Remarks</label>
+            <textarea id="rcNotes" class="form-control" rows="2" placeholder="Optional note…"></textarea>
           </div>
         </div>
-        <div class="modal-footer"><button class="btn btn-light-alt" type="button" data-bs-dismiss="modal">Cancel</button><button class="btn btn-success" type="submit">Submit Receipt</button></div>
+
+        <div class="modal-footer">
+          <button class="btn btn-light-alt" type="button" data-bs-dismiss="modal">Cancel</button>
+          <button class="btn btn-success" type="submit">Submit Receipt</button>
+        </div>
       </form>
     </div>
   </div>
+
 
   <!-- Issue -->
   <div class="modal fade" id="modalIssue" tabindex="-1">
     <div class="modal-dialog modal-lg modal-dialog-centered">
       <form class="modal-content" id="formIssue">
-        <div class="modal-header"><h5 class="modal-title"><i class="fa-solid fa-truck-arrow-right me-2"></i>Item Outbound / Issuing</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="fa-solid fa-truck-arrow-right me-2"></i>Item Outbound / Issuing</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+
         <div class="modal-body">
-          <div class="row g-3">
-            <div class="col-md-6"><label class="form-label">SKU</label><input id="isSku" class="form-control" list="skuList" required></div>
-            <div class="col-md-6"><label class="form-label">Item Name</label><input id="isName" class="form-control" disabled></div>
-            <div class="col-md-6"><label class="form-label">Item Description</label><input id="isDesc" class="form-control" disabled></div>
-            <div class="col-md-2"><label class="form-label">UoM</label><input id="isUom" class="form-control" disabled></div>
-            <div class="col-md-2"><label class="form-label">Current Qty</label><input id="isCur" class="form-control" disabled></div>
-            <div class="col-md-2"><label class="form-label">Qty to Pull-out</label><input id="isQty" type="number" min="1" class="form-control" required></div>
-            <div class="col-md-6"><label class="form-label">Issued To — Employee Name</label><input id="isEmp" class="form-control" required></div>
-            <div class="col-md-6"><label class="form-label">Department</label><input id="isDept" class="form-control" required></div>
-            <div class="col-12"><label class="form-label">Reason for Pull-out</label><textarea id="isReason" class="form-control" rows="2" required></textarea></div>
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <div class="text-secondary small">Add up to <b>10</b> items. No duplicate SKUs. Items must be <b>Active</b>. Cannot exceed on-hand.</div>
+            <div><button type="button" class="btn btn-sm btn-light-alt" id="isAddRow"><i class="fa-solid fa-plus me-1"></i>Add item</button></div>
+          </div>
+
+          <div id="isRows" class="vstack gap-2"></div>
+
+          <!-- NEW required fields -->
+          <div class="row g-3 mt-2">
+            <div class="col-md-4">
+              <label class="form-label">Issued To — Employee Name</label>
+              <input id="isEmp" class="form-control" required>
+            </div>
+
+            <div class="col-md-4">
+              <label class="form-label">Business Unit</label>
+              <!-- from "Business Unit" sheet (A=Name, B=Active) -->
+              <select id="isBU" class="form-select" required>
+                <option value="" selected disabled>— Select Business Unit —</option>
+              </select>
+            </div>
+
+            <div class="col-md-4">
+              <label class="form-label">Department</label>
+              <!-- from "Departments" sheet (A=Name, B=Active) -->
+              <select id="isDept" class="form-select" required>
+                <option value="" selected disabled>— Select Department —</option>
+              </select>
+            </div>
+
+            <div class="col-md-6">
+              <label class="form-label">Deployment Location</label>
+              <input id="isDeployLoc" class="form-control" placeholder="e.g., HO - 3F IT Room" required>
+            </div>
+
+            <div class="col-md-6">
+              <label class="form-label">Reason for Pull-out</label>
+              <textarea id="isReason" class="form-control" rows="1" placeholder="Brief reason" required></textarea>
+            </div>
           </div>
         </div>
-        <div class="modal-footer"><button class="btn btn-light-alt" type="button" data-bs-dismiss="modal">Cancel</button><button class="btn btn-warning" type="submit">Submit Issue</button></div>
+
+        <div class="modal-footer">
+          <button class="btn btn-light-alt" type="button" data-bs-dismiss="modal">Cancel</button>
+          <button class="btn btn-warning" type="submit">Submit Issue</button>
+        </div>
       </form>
     </div>
   </div>
+
 
   <!-- Request Item (for Requestors) -->
   <div class="modal fade" id="modalRequest" tabindex="-1">
@@ -828,10 +895,9 @@
       <td class="when"></td><td class="type"></td><td class="sku"></td><td class="details"></td><td class="by"></td>
       <td class="text-end">
         <div class="btn-group btn-group-sm">
-        <button class="btn btn-success btn-approve" title="Approve"><i class="fa-solid fa-check"></i></button>
-        <button class="btn btn-danger btn-decline" title="Decline"><i class="fa-solid fa-xmark"></i></button>
-        <button class="btn btn-outline-secondary btn-void" title="Void (remove from queue)"><i class="fa-solid fa-trash"></i></button>
-      </div>
+          <button class="btn btn-success btn-approve" title="Approve"><i class="fa-solid fa-check"></i></button>
+          <button class="btn btn-danger btn-decline" title="Decline"><i class="fa-solid fa-xmark"></i></button>
+        </div>
       </td>
     </tr>
   </template>
@@ -859,6 +925,35 @@
       <td class="delta text-end"></td><td class="uom"></td><td class="status"></td><td class="by"></td><td class="note"></td>
     </tr>
   </template>
+
+  <template id="tplCreateRow">
+    <div class="border rounded p-2">
+      <div class="row g-2 align-items-end">
+        <div class="col-md-4">
+          <label class="form-label">Item Name</label>
+          <input class="form-control cr-name" required>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">UoM</label>
+          <select class="form-select cr-uom"></select>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">Location</label>
+          <input class="form-control cr-loc" placeholder="Main WH">
+        </div>
+        <div class="col-md-10">
+          <label class="form-label">Description</label>
+          <input class="form-control cr-desc" placeholder="">
+        </div>
+        <div class="col-md-2 d-grid">
+          <button type="button" class="btn btn-light-alt cr-del">
+            <i class="fa-solid fa-trash-can me-1"></i>Remove
+          </button>
+        </div>
+      </div>
+    </div>
+  </template>
+
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script>
@@ -992,6 +1087,242 @@
       { key:'RecordID', header:'Record ID' }
     ];
 
+    // ===== Helpers to render organized details =====
+    function activeNames(list){
+      return (list || [])
+        .filter(r => String(r.Active || r.active || '').toLowerCase() !== 'no') // treat blank/Yes/true as active
+        .map(r => r.Name || r.name)
+        .filter(Boolean);
+    }
+    function populateBusinessUnitSelect(buList){
+      const sel = document.getElementById('isBU'); if (!sel) return;
+      const keep = sel.querySelector('option[value=""]')?.outerHTML || '<option value="" disabled selected>— Select Business Unit —</option>';
+      const opts = activeNames(buList).map(n => `<option value="${n}">${n}</option>`).join('');
+      sel.innerHTML = keep + opts;
+    }
+    function populateDepartmentSelect(deptList){
+      const sel = document.getElementById('isDept'); if (!sel) return;
+      const keep = sel.querySelector('option[value=""]')?.outerHTML || '<option value="" disabled selected>— Select Department —</option>';
+      const opts = activeNames(deptList).map(n => `<option value="${n}">${n}</option>`).join('');
+      sel.innerHTML = keep + opts;
+    }
+
+    // ===== Create SKUs (multi) =====
+    function crMakeRow(){
+      const tpl = document.getElementById('tplCreateRow');
+      const node = tpl.content.firstElementChild.cloneNode(true);
+      // populate UoM
+      const sel = node.querySelector('.cr-uom');
+      sel.innerHTML = '<option value="" disabled selected>— Select UoM —</option>'
+        + UOMS.map(u => `<option value="${u}">${u}</option>`).join('');
+      return node;
+    }
+    function crReset(n=1){
+      const host = document.getElementById('csRows');
+      if (!host) return;
+      host.innerHTML = '';
+      for (let i=0;i<n;i++) host.appendChild(crMakeRow());
+    }
+    document.getElementById('modalCreateSku')?.addEventListener('shown.bs.modal', ()=> crReset(1));
+
+    // Add / Remove rows (event delegation)
+    document.addEventListener('click', (ev)=>{
+      if (ev.target.closest('#csAddRow')) {
+        const host = document.getElementById('csRows');
+        if (!host) return;
+        if (host.children.length >= 10) {
+          (window.toast ? toast({ title:'Limit', message:'Max 10 items per request.', type:'warning' }) : alert('Max 10 items per request.'));
+          return;
+        }
+        host.appendChild(crMakeRow());
+      }
+      if (ev.target.closest('.cr-del')) {
+        ev.preventDefault();
+        ev.target.closest('.border.rounded')?.remove();
+      }
+    });
+
+    // Submit Create SKUs (multi)
+    document.getElementById('formCreateSku')?.addEventListener('submit', (ev)=>{
+      ev.preventDefault();
+      ev.stopPropagation();
+
+      const btn  = ev.submitter;
+      const host = document.getElementById('csRows');
+      const note = document.getElementById('csNotes')?.value || '';
+
+      const items = Array.from(host?.children || []).map(card => ({
+        sku: '',
+        name: (card.querySelector('.cr-name')?.value || '').trim(),
+        uom:  (card.querySelector('.cr-uom')?.value  || '').trim(),
+        desc: (card.querySelector('.cr-desc')?.value || '').trim(),
+        loc:  (card.querySelector('.cr-loc')?.value  || '').trim()
+      })).filter(it => it.name);
+
+      if (!items.length) {
+        (window.toast ? toast({ message:'Add at least one item.', type:'warning' }) : alert('Add at least one item.'));
+        return false;
+      }
+
+      setLoading(btn, true, 'Submitting…');
+
+      google.script.run
+        .withSuccessHandler(() => {
+          setLoading(btn, false);
+          (window.toast ? toast({ title:'Submitted', message:'Create request sent for approval.', type:'success' }) : alert('Submitted.'));
+
+          // Close modal
+          bootstrap.Modal.getInstance(document.getElementById('modalCreateSku'))?.hide();
+
+          // 🔁 Refresh the app data without leaving the page
+          google.script.run
+            .withSuccessHandler(fresh => {
+              // rebind the global state if you use it
+              window.BOOT = fresh;
+
+              // re-render sections (use whatever you already have)
+              RENDER.stock();
+              RENDER.pending();
+              RENDER.ledger();
+              RENDER.mine?.();
+
+              // clear the form for next time
+              document.getElementById('csRows').innerHTML = '';
+              document.getElementById('csNotes').value = '';
+            })
+            .withFailureHandler(e => {
+              const msg = e?.message || String(e);
+              (window.toast ? toast({ title:'Reload failed', message: msg, type:'danger' }) : alert('Reload error: ' + msg));
+              // last resort: hard reload
+              window.location.reload();
+            })
+            .getBootstrap();
+        })
+        .withFailureHandler(e => {
+          setLoading(btn, false);
+          const msg = e?.message || String(e);
+          (window.toast ? toast({ title:'Error', message: msg, type:'danger' }) : alert('Error: ' + msg));
+        })
+        .actionCreateSkus(items, note);
+
+      return false;
+    });
+
+
+
+    function formatSkuChips(csv){
+      const parts = String(csv||'').split(',').map(s => s.trim()).filter(Boolean);
+      if(!parts.length) return '—';
+      return parts.map(code => `<span class="badge bg-secondary-subtle text-dark me-1 mb-1">${code}</span>`).join('');
+    }
+
+    function extractItemsFromPayload(row){
+      try{
+        const p = row && row.PayloadJSON ? JSON.parse(row.PayloadJSON) : null;
+        if(p && Array.isArray(p.items) && p.items.length){
+          return p.items.map(it => ({
+            sku: it.SKU, name: it.Name, qty: it.qty, uom: it.UoM
+          }));
+        }
+      }catch(e){}
+      // fallback for single
+      if(row && row.Name){
+        return [{ sku: row.SKU, name: row.Name, qty: row.Qty, uom: row.UoM }];
+      }
+      return [];
+    }
+
+    function buildDetailsHTML(row){
+      const items = extractItemsFromPayload(row);
+      const list = items.length
+        ? `<ol class="mb-1">${items.map(it => `<li>${(it.qty ?? '—')} ${it.uom ?? ''} — ${it.name ?? '—'} <span class="text-secondary">(${it.sku ?? '—'})</span></li>`).join('')}</ol>`
+        : '—';
+
+      // User’s notes/remarks/reason (gray at the bottom)
+      // Prefer structured payload fields if present
+      let userNote = '';
+      try{
+        const p = row && row.PayloadJSON ? JSON.parse(row.PayloadJSON) : null;
+        const bits = [];
+        if(p && p.reason) bits.push(`Reason: ${p.reason}`);
+        if(p && p.note)   bits.push(`Note: ${p.note}`);
+        if(!bits.length){
+          if(row.Reason) bits.push(`Reason: ${row.Reason}`);
+          if(row.Note)   bits.push(`Note: ${row.Note}`);
+        }
+        if(bits.length) userNote = `<div class="small text-secondary">${bits.join(' · ')}</div>`;
+      }catch(e){
+        const fallback = [row.Reason && `Reason: ${row.Reason}`, row.Note && `Note: ${row.Note}`].filter(Boolean);
+        if(fallback.length) userNote = `<div class="small text-secondary">${fallback.join(' · ')}</div>`;
+      }
+
+      return list + userNote;
+    }
+
+    function formatNoteHTML(row){
+      const txt = String(mergedNote(row) || '').trim();
+      if (!txt) return '—';
+
+      // Split & de-duplicate "numbered item" lines (e.g., "1. 1 bag — Name (SKU)")
+      const lines = txt.split(/\n+/);
+      const cleaned = [];
+      const seenItems = new Set();
+
+      const isItemLine = (l) => /^\d+\.\s+.+\s+\([^)]+\)\s*$/i.test(l);
+      const keyItem = (l) =>
+        l.replace(/\s+/g, ' ')            // compress spaces
+        .replace(/^\d+\.\s*/, '')        // drop leading "N. "
+        .trim()
+        .toLowerCase();                  // key without the numbering
+
+      for (const l of lines) {
+        if (isItemLine(l)) {
+          const k = keyItem(l);
+          if (seenItems.has(k)) continue; // skip duplicate item line
+          seenItems.add(k);
+        }
+        cleaned.push(l);
+      }
+
+      // Now render: item lines as <ol>, other lines as small gray text
+      const itemLines = cleaned.filter(isItemLine);
+      const other     = cleaned.filter(l => !isItemLine(l));
+
+      let html = '';
+      if (itemLines.length) {
+        html += `<ol class="mb-1">${itemLines.map(l => `<li>${l.replace(/^\d+\.\s*/, '')}</li>`).join('')}</ol>`;
+      }
+      if (other.length) {
+        html += `<div class="small text-secondary">${other.join(' · ')}</div>`;
+      }
+      return html || '—';
+    }
+
+
+
+    function formatLedgerItemCell(row){
+      // Show "Receive — N item(s)" as title, then list all item names below (parsed from Note)
+      const title = row.Item || '—';
+      const names = [];
+      String(row.Note||'').split(/\n+/).forEach(l=>{
+        const m = l.match(/—\s*(.+?)\s*\(/); // from "qty uom — NAME (SKU)"
+        if(m && m[1]) names.push(m[1].trim());
+      });
+      const dedup = [...new Set(names)];
+      const below = dedup.length ? `<div class="small text-secondary">${dedup.join(', ')}</div>` : '';
+      return `<div>${title}</div>${below}`;
+    }
+
+    function buildApproveSummaryHTML(row){
+      const itemsHTML = buildDetailsHTML(row); // already includes items list + gray user comment
+      return `
+        <div class="mb-1"><b>Type:</b> ${row.Type}</div>
+        <div class="mb-1"><b>Pending ID:</b> ${row.PendingID}</div>
+        <div class="mb-1"><b>SKU:</b> ${formatSkuChips(row.SKU)}</div>
+        <div class="mt-2">${itemsHTML}</div>
+      `;
+    }
+
     function populateUomSelect(selectEl, selectedValue){
       if (!selectEl) return;
       selectEl.innerHTML = '<option value="" disabled>— Select UoM —</option>' + UOMS.map(u => `<option value="${u}">${u}</option>`).join('');
@@ -1002,6 +1333,7 @@
     }
 
     let BOOT = null;
+    const SKU_HIST_CACHE = new Map();
 
     function toast(opts, maybeType){
       // Backward compatible: toast('message', 'info')
@@ -1086,14 +1418,14 @@
       setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); }, 0);
     }
 
+    // ===== SKU History (robust: handles multi-item rows) =====
     function openSkuHistory(sku){
       const item = (BOOT.items||[]).find(x => String(x.SKU) === String(sku));
       const body = document.getElementById('skuHistoryBody');
-      if(!item || !body) return;
+      const modalEl = document.getElementById('modalSkuHistory');
+      if(!item || !body || !modalEl) return;
 
-      const history = (BOOT.ledger||[]).filter(l => String(l.SKU) === String(sku)).sort((a,b)=> new Date(b.When) - new Date(a.When));
-      const statusChip = item.Status==='Active' ? '<span class="badge text-bg-success">Active</span>' : '<span class="badge text-bg-secondary">Retired</span>';
-
+      // open immediately with a tiny loader
       body.innerHTML = `
         <div class="p-3 border rounded-3 mb-3">
           <div class="d-flex justify-content-between align-items-start">
@@ -1102,7 +1434,92 @@
               <div class="fs-5 fw-semibold">${item.SKU}</div>
               <div class="h5 mb-0">${item.Name}</div>
             </div>
-            <div>${statusChip}</div>
+            <div>${
+              item.Status==='Active'
+                ? '<span class="badge text-bg-success">Active</span>'
+                : item.Status==='On Hold'
+                  ? '<span class="badge text-bg-warning text-dark">On Hold</span>'
+                  : '<span class="badge text-bg-secondary">Retired</span>'
+            }</div>
+          </div>
+          <div class="text-secondary small mt-2">${item.Description || ''}</div>
+        </div>
+        <div class="d-flex align-items-center gap-2 text-secondary">
+          <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+          Building history…
+        </div>`;
+      bootstrap.Modal.getOrCreateInstance(modalEl).show();
+
+      // --- helper: parse one note line like "10 pcs — Name (SKU)"
+      function parseLine(line){
+        const s = String(line||'').trim();
+        // allow leading "1. ", any dash variant (-, –, —), uom can have spaces (e.g., "sq ft")
+        const re = /^\s*(?:\d+\.\s*)?(-?\d+(?:\.\d+)?)\s+(.+?)\s*[—–-]\s*(.+?)\s*\(\s*([^)]+)\s*\)\s*$/;
+        const m = s.match(re);
+        if(!m) return null;
+        return {
+          qty: parseFloat(m[1]),
+          uom: m[2].trim(),
+          name: m[3].trim(),
+          sku: m[4].trim()
+        };
+      }
+
+      // --- build a per-SKU history from the full ledger snapshot
+      function buildHistoryFor(sku){
+        const out = [];
+        for (const l of (BOOT.ledger || [])) {
+          // 1) exact SKU row → direct hit
+          if (String(l.SKU) === String(sku)) {
+            out.push({
+              when: l.When, type: l.Type,
+              delta: Number(l.Delta||0),
+              uom: l.UoM || '',
+              status: l.Status, by: l.By || '',
+              note: mergedNote(l), id: l.ID
+            });
+            continue;
+          }
+          // 2) multi-item row → parse each line in Note and pick the one for this sku
+          if (!l.Note) continue;
+          const lines = String(l.Note).split(/\n+/);
+          for (const raw of lines) {
+            const p = parseLine(raw);
+            if (!p || String(p.sku) !== String(sku)) continue;
+            const signed = String(l.Type) === 'ISSUE' ? -Math.abs(p.qty) : Math.abs(p.qty);
+            out.push({
+              when: l.When, type: l.Type,
+              delta: signed,
+              uom: p.uom || l.UoM || '',
+              status: l.Status, by: l.By || '',
+              note: mergedNote(l, raw && raw.trim()), id: l.ID
+            });
+            break; // at most once per ledger row
+          }
+        }
+        // newest first
+        out.sort((a,b) => new Date(b.when) - new Date(a.when));
+        return out;
+      }
+
+      const history = buildHistoryFor(sku);
+
+      // render table
+      body.innerHTML = `
+        <div class="p-3 border rounded-3 mb-3">
+          <div class="d-flex justify-content-between align-items-start">
+            <div>
+              <div class="text-secondary small">SKU</div>
+              <div class="fs-5 fw-semibold">${item.SKU}</div>
+              <div class="h5 mb-0">${item.Name}</div>
+            </div>
+            <div>${
+              item.Status==='Active'
+                ? '<span class="badge text-bg-success">Active</span>'
+                : item.Status==='On Hold'
+                  ? '<span class="badge text-bg-warning text-dark">On Hold</span>'
+                  : '<span class="badge text-bg-secondary">Retired</span>'
+            }</div>
           </div>
           <div class="text-secondary small mt-2">${item.Description || ''}</div>
         </div>
@@ -1112,34 +1529,44 @@
             <table class="table sku-history-table align-middle table-hover table-striped">
               <thead>
                 <tr>
-                  <th>When</th><th>Type</th><th class="text-end">Δ Qty</th><th>UoM</th><th>Status</th><th>By</th><th>Note</th><th class="text-muted">Ledger ID</th>
+                  <th>When</th><th>Type</th><th class="text-end">Δ Qty</th><th>UoM</th>
+                  <th>Status</th><th>By</th><th>Note</th><th class="text-muted">Ledger ID</th>
                 </tr>
               </thead>
               <tbody>
                 ${history.map(l => `
                   <tr>
-                    <td class="when">${when(l.When)}</td>
-                    <td class="type">${typeBadge(l.Type)}</td>
-                    <td class="delta">${qtyBadge(l.Delta)}</td>
-                    <td class="uom">${l.UoM || ''}</td>
-                    <td class="status">${statusBadge(l.Status)}</td>
-                    <td class="by">${l.By || ''}</td>
-                    <td class="note">${l.Note || ''}</td>
-                    <td class="id">${l.ID}</td>
-                  </tr>`).join('')}
+                    <td class="when">${when(l.when)}</td>
+                    <td class="type">${typeBadge(l.type)}</td>
+                    <td class="delta">${qtyBadge(l.delta)}</td>
+                    <td class="uom">${l.uom || ''}</td>
+                    <td class="status">${statusBadge(l.status)}</td>
+                    <td class="by">${l.by || ''}</td>
+                    <td class="note">${l.note || ''}</td>
+                    <td class="id">${l.id || ''}</td>
+                  </tr>
+                `).join('')}
               </tbody>
-            </table>` : `<div class="text-secondary small">No history yet for this SKU.</div>`
-          }
+            </table>`
+            : `<div class="text-secondary small">No history yet for this SKU.</div>`}
         </div>
       `;
+
+      // export CSV hook (reuses your downloadCSV)
       const csvCols = [
-        { key:'When', header:'When' },{ key:'Type', header:'Type' },{ key:'ID', header:'Ledger ID' },{ key:'Delta', header:'Delta' },
-        { key:'UoM', header:'UoM' },{ key:'Status', header:'Status' },{ key:'By', header:'By' },{ key:'Note', header:'Note' }
+        { header:'When',      value:r => r.when },
+        { header:'Type',      value:r => r.type },
+        { header:'Ledger ID', value:r => r.id },
+        { header:'Delta',     value:r => r.delta },
+        { header:'UoM',       value:r => r.uom },
+        { header:'Status',    value:r => r.status },
+        { header:'By',        value:r => r.by },
+        { header:'Note',      value:r => r.note }
       ];
       const btn = document.getElementById('btnExportSkuHistory');
-      if (btn){ btn.onclick = ()=> downloadCSV(`${item.SKU}-history.csv`, history, csvCols); }
-      bootstrap.Modal.getOrCreateInstance('#modalSkuHistory').show();
+      if (btn) btn.onclick = () => downloadCSV(`${item.SKU}-history.csv`, history, csvCols);
     }
+
 
     // ===== Loader util =====
     const Loader = (() => {
@@ -1250,6 +1677,11 @@
           // Initialize UoM selects
           populateUomSelect(document.getElementById('csUom'), '');
           populateUomSelect(document.getElementById('msUom'), '');
+
+          // NEW: fill Business Unit + Department dropdowns for ISSUE
+          populateBusinessUnitSelect(payload.businessUnits || payload.lookups?.businessUnits || []);
+          populateDepartmentSelect(payload.departments   || payload.lookups?.departments   || []);
+
 
           // Populate filter dropdowns
           populateStockFilters(payload.items);
@@ -1478,13 +1910,14 @@
 
         frag.querySelector('.when').textContent    = when(p.When);
         frag.querySelector('.type').innerHTML      = typeBadge(p.Type);
-        frag.querySelector('.sku').textContent     = p.SKU || '';
-        frag.querySelector('.details').textContent = p.Note || '';
+        frag.querySelector('.sku').innerHTML       = formatSkuChips(p.SKU);
+        // Show full item breakdown parsed from PayloadJSON (plus reason/note)
+        frag.querySelector('.details').innerHTML   = buildDetailsHTML(p);
         frag.querySelector('.by').textContent      = p.By || '';
 
         const btnApprove = frag.querySelector('.btn-approve');
         const btnDecline = frag.querySelector('.btn-decline');
-        const btnVoid    = frag.querySelector('.btn-void'); 
+        const btnVoid    = frag.querySelector('.btn-void');
 
         btnApprove.addEventListener('click', ()=> openApproveConfirm(btnApprove, p));
         btnDecline.addEventListener('click', ()=> openActionConfirm(btnDecline, p.PendingID, p, 'decline'));
@@ -1496,6 +1929,7 @@
 
       renderPager('pending', 'pagerPending', pg);
     }
+
 
     let confirmCtx = null; // { btn, id, rec, action: 'decline'|'void' }
 
@@ -1517,14 +1951,20 @@
     function openActionConfirm(btn, id, rec, action){
       confirmCtx = { btn, id, rec, action };
       const noun = action === 'void' ? 'Void' : 'Decline';
-      const msg = `${noun} ${rec.Type} for ${rec.SKU || rec.Name || ''}?`;
-      const msgEl = document.getElementById('confirmMessage');
-      if (msgEl) msgEl.textContent = msg;
 
-      // NEW: clear reason input each time and focus it on show
+      // 1) Mirror the Approve summary inside the Decline modal
+      const summaryEl = document.getElementById('confirmMessage');
+      if (summaryEl) summaryEl.innerHTML = buildApproveSummaryHTML(rec);
+
+      // 2) Reset/focus reason
       const reasonEl = document.getElementById('confirmReason');
       if (reasonEl) reasonEl.value = '';
 
+      // 3) Header + primary button state/text
+      const titleEl = document.querySelector('#modalConfirm .modal-title');
+      if (titleEl){
+        titleEl.innerHTML = `<i class="fa-solid fa-circle-question me-2"></i>Confirm Action — ${noun}`;
+      }
       const yes = document.getElementById('confirmYes');
       if (yes){
         if (action === 'void'){
@@ -1535,10 +1975,13 @@
           yes.innerHTML = `<i class="fa-solid fa-xmark me-1"></i>Confirm Decline`;
         }
       }
+
+      // 4) Show modal
       const m = bootstrap.Modal.getOrCreateInstance('#modalConfirm');
       m.show();
       setTimeout(()=> reasonEl?.focus(), 200);
     }
+
 
     document.getElementById('confirmYes').addEventListener('click', ()=>{
       const ctx = confirmCtx; if (!ctx) return;
@@ -1647,6 +2090,69 @@
     });
   }
 
+  // Merge all note sources (primary Note, Approve/Action comment fields, and payload.approval.comment)
+  function mergedNote(rec, extraLine){
+    const primary = String(rec?.Note || '').trim();
+    const out = primary ? primary.split(/\n+/) : [];
+
+    // Helpers to detect/normalize item lines like: "1. 1 bag — NAME (SKU)"
+    const isItemLine = l => /^\s*\d+\.\s+.+\([^)]+\)\s*$/i.test(l);
+    const itemKey = l => String(l)
+      .replace(/^\s*\d+\.\s*/, '')   // drop "N. "
+      .replace(/\s+/g, ' ')          // compress spaces
+      .trim()
+      .toLowerCase();
+
+    // Build a set of item-keys already present in the primary note
+    const existingItemKeys = new Set(
+      (out.filter(isItemLine)).map(itemKey)
+    );
+
+    // Conditionally add extraLine
+    if (extraLine && String(extraLine).trim()) {
+      const s = String(extraLine).trim();
+      if (isItemLine(s)) {
+        const k = itemKey(s);
+        if (!existingItemKeys.has(k)) {
+          out.push(s);
+          existingItemKeys.add(k);
+        }
+      } else {
+        // plain text line: only add if not already contained (case-insensitive)
+        const lower = s.toLowerCase();
+        if (!primary.toLowerCase().includes(lower)) out.push(s);
+      }
+    }
+
+    // Common server-side fields to merge (skip if already present)
+    const extras = [
+      rec?.ApproveComment,
+      rec?.ApproverComment,
+      rec?.ApproverNote,
+      rec?.ActionNote,
+      rec?.ReviewNote
+    ];
+    extras.forEach(v => {
+      const s = String(v || '').trim();
+      if (!s) return;
+      if (!primary.toLowerCase().includes(s.toLowerCase())) out.push(s);
+    });
+
+    // Global de-dup: item lines by itemKey; others by lowercased text
+    const seen = new Set();
+    const deduped = [];
+    for (const line of out) {
+      const key = isItemLine(line) ? 'item:' + itemKey(line) : 'txt:' + line.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      deduped.push(line);
+    }
+
+    return deduped.join('\n');
+  }
+
+
+
 
   function renderLedger(list){
     // If requestor, restrict ledger to their own ISSUE requests
@@ -1690,13 +2196,13 @@
       frag.querySelector('.id').textContent     = l.ID;
       frag.querySelector('.when').textContent   = when(l.When);
       frag.querySelector('.type').innerHTML     = typeBadge(l.Type);
-      frag.querySelector('.sku').textContent    = l.SKU || '';
-      frag.querySelector('.name').textContent   = l.Item || '';
+      frag.querySelector('.sku').innerHTML  = formatSkuChips(l.SKU);
+      frag.querySelector('.name').innerHTML = formatLedgerItemCell(l);
       frag.querySelector('.delta').innerHTML    = qtyBadge(l.Delta);
       frag.querySelector('.uom').textContent    = l.UoM || '';
       frag.querySelector('.status').innerHTML   = statusBadge(l.Status);
       frag.querySelector('.by').textContent     = l.By || '';
-      frag.querySelector('.note').textContent   = l.Note || '';
+      frag.querySelector('.note').innerHTML = formatNoteHTML(l);
 
       tb.appendChild(frag);
       requestAnimationFrame(function(){ row.classList.add('show'); });
@@ -2073,6 +2579,38 @@
       inp.addEventListener('change', refresh);
     }
 
+    // --- Pending Details: de-dupe + include stamps, notes, reasons ---
+    function _htmlEscape(s){
+      return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+    function _splitBits(s){
+      return String(s||'').split(/\n|\s*\|\s*/).map(x=>x.trim()).filter(Boolean);
+    }
+    function _uniqBits(arr){
+      const seen = new Set(); const out=[];
+      arr.forEach(t=>{ const k=t.toLowerCase(); if(!seen.has(k)){ seen.add(k); out.push(t); }});
+      return out;
+    }
+    function pendingDetailsText(rec){
+      // Start with server-filled Details, then enrich with Note lines (older rows)
+      const base = _splitBits(rec.Details);
+      const fromNote = _splitBits(rec.Note).filter(x =>
+        /^(Reason:|Note:)|^\[(Submitted|Approved|Declined|Voided) by /.test(x)
+      );
+      return _uniqBits(base.concat(fromNote)).join(' | ');
+    }
+    function pendingDetailsHTML(rec){
+      const txt = pendingDetailsText(rec);
+      // Light formatting: stamps in muted tone
+      const parts = txt.split(' | ').map(bit=>{
+        if (/^\[(Submitted|Approved|Declined|Voided) by /.test(bit)){
+          return `<span class="text-secondary">${_htmlEscape(bit)}</span>`;
+        }
+        return _htmlEscape(bit);
+      });
+      return parts.join(' <span class="text-muted">|</span> ');
+    }
+
     // Submit "Request Item" → queues an ISSUE for approval
     (function(){
       var form = document.getElementById('formRequest');
@@ -2109,6 +2647,43 @@
           .actionIssue(sku, qty, emp, dept, reason);
       });
     })();
+    
+    function renderSkuHistoryTable(sku, rows){
+      const head = `
+        <div class="mb-2"><b>${sku}</b> — History</div>
+        <div class="history-wrap">
+          <table class="table table-hover align-middle sku-history-table">
+            <thead>
+              <tr>
+                <th>When</th><th>Type</th><th class="text-end">Δ</th><th>UoM</th>
+                <th>Status</th><th>By</th><th class="text-muted">ID</th>
+              </tr>
+            </thead>
+            <tbody>`;
+
+      const body = rows.map(r => {
+        const noteHtml = (r.note || '').trim().replace(/\n/g, '<br>');
+        return `
+          <tr>
+            <td class="when">${when(r.when)}</td>
+            <td class="type">${r.type}</td>
+            <td class="delta text-end">${r.delta === '' ? '' : fmt(r.delta)}</td>
+            <td class="uom">${r.uom || ''}</td>
+            <td class="status">${r.status || ''}</td>
+            <td class="by">${r.by || ''}</td>
+            <td class="id">${r.linkId || ''}</td>
+          </tr>
+          <tr>
+            <td class="note" colspan="7">
+              <div class="small text-secondary mb-1">Note / Timeline</div>
+              <div style="white-space:pre-wrap">${noteHtml || '—'}</div>
+            </td>
+          </tr>`;
+      }).join('');
+
+      const tail = `</tbody></table></div>`;
+      $('#skuHistoryBody').innerHTML = head + body + tail;
+    }
 
     function wireRequestSearch(){
       const el = document.getElementById('riSearch');
@@ -2242,22 +2817,11 @@
     function openApproveConfirm(btn, rec){
       approveCtx = { btn, id: rec.PendingID, rec };
 
-      const rows = [
-        ['Type',        friendlyTypeTxt(rec.Type)],
-        ['SKU',         rec.SKU || '—'],
-      ];
-      const qtyVal = (rec.Qty !== '' && rec.Qty !== null && rec.Qty !== undefined && String(rec.Qty).trim() !== '')
-        ? rec.Qty
-        : (rec.Delta !== '' && rec.Delta !== null && rec.Delta !== undefined ? rec.Delta : null);
-      if (qtyVal !== null) rows.push(['Quantity', qtyVal]);
-      if (rec.UoM) rows.push(['UoM', rec.UoM]);
-      rows.push(['Requested By', rec.By || '—']);
-      rows.push(['Note', (rec.Note && rec.Note.trim()) ? rec.Note : '—']);
-
       const sum = document.getElementById('approveSummary');
-      if (sum) sum.innerHTML = buildSummaryTable(rows);
+      if (sum) sum.innerHTML = buildApproveSummaryHTML(rec);
 
-      // FIX: pass the element to Bootstrap
+      // reset the comment input each open
+      const ac = document.getElementById('approveComment'); if (ac) ac.value = '';
       const modalEl = document.getElementById('modalApprove');
       bootstrap.Modal.getOrCreateInstance(modalEl).show();
     }
@@ -2275,10 +2839,14 @@
       inst.hide();
 
       // Call server
+      const approveComment = (document.getElementById('approveComment')?.value || '').trim();
+
       google.script.run
         .withSuccessHandler(()=>{
           setLoading(ctx.btn,false);
           toast('Approved','success');
+          // clear the comment box for next time
+          const ac = document.getElementById('approveComment'); if (ac) ac.value = '';
           loadApp({silent:true});
           approveCtx = null;
         })
@@ -2287,7 +2855,8 @@
           toast(e.message,'danger');
           approveCtx = null;
         })
-        .approvePending(ctx.id);
+        // send the approver's comment along with the Approve call
+        .approvePending(ctx.id, approveComment);
     });
 
     // Pretty label for roles used in the Users tab
@@ -2392,6 +2961,76 @@
           .actionReceive(sku, qty, notes, false);
         return;
       }
+
+      // ===== Create SKUs (bulk) =====
+      function csMakeRow(){
+        const tpl = document.getElementById('tplCreateRow');
+        const node = tpl.content.firstElementChild.cloneNode(true);
+        // UoM select
+        populateUomSelect(node.querySelector('.cr-uom'), '');
+        // remove row
+        node.querySelector('.cr-del').addEventListener('click', ()=> node.remove());
+        return node;
+      }
+      function csCollect(){
+        const rows = Array.from(document.querySelectorAll('#csRows .cr-name')).map((_,i)=> i); // index trick
+        const boxes = Array.from(document.querySelectorAll('#csRows > *'));
+        return boxes.map(box => {
+          const name = box.querySelector('.cr-name').value.trim();
+          const uom  = box.querySelector('.cr-uom').value.trim();
+          const loc  = box.querySelector('.cr-loc').value.trim();
+          const desc = box.querySelector('.cr-desc').value.trim();
+          return { name, uom, loc, desc };
+        }).filter(it => it.name); // keep filled rows
+      }
+      function csReset(n=1){
+        const host = document.getElementById('csRows');
+        host.innerHTML = '';
+        for(let i=0;i<n;i++) host.appendChild(csMakeRow());
+      }
+
+      // Seed rows when the modal is fully visible (ensures DOM is ready)
+      document.getElementById('modalCreateSku')?.addEventListener('shown.bs.modal', ()=> csReset(1));
+
+      // Event delegation so the Add button always works even if listeners were early
+      document.addEventListener('click', (ev)=>{
+        const btn = ev.target.closest('#csAddRow');
+        if (!btn) return;
+        const host = document.getElementById('csRows');
+        if (!host) return;
+        if (host.children.length >= 10) {
+          toast({ title:'Limit reached', message:'Max 10 items per request.', type:'warning' });
+          return;
+        }
+        host.appendChild(csMakeRow());
+      });
+
+      document.getElementById('formCreateSku')?.addEventListener('submit', function(ev){
+        ev.preventDefault();
+        const btn = this.querySelector('button[type="submit"]');
+        const items = csCollect();
+        if (!items.length) { toast({message:'Add at least one item.', type:'warning'}); return; }
+        // basic validation
+        for(const it of items){
+          if (!it.name) { toast({message:'Each row needs a name.', type:'warning'}); return; }
+        }
+        setLoading(btn, true, 'Submitting…');
+        const note = document.getElementById('csNotes').value || '';
+        google.script.run
+          .withSuccessHandler(function(res){
+            setLoading(btn, false);
+            bootstrap.Modal.getInstance(document.getElementById('modalCreateSku'))?.hide();
+            toast({ title:'Submitted', message:'Create SKUs request queued for approval.', type:'success' });
+            // refresh bootstrap data
+            reloadAll();
+          })
+          .withFailureHandler(function(e){
+            setLoading(btn, false);
+            toast({ title:'Error', message: (e && e.message) ? e.message : String(e), type:'danger' });
+          })
+          .actionCreateSkus(items, note);
+      });
+
 
       const m = bootstrap.Modal.getOrCreateInstance('#modalRetiredHeadsUp');
       m.show();
@@ -2560,6 +3199,247 @@
       loadApp();              // shows loader only on first boot
       startSoftReload();      // silent refresh every 15s
     });
+
+    // ===== Multi-Item Receive/Issue UI =====
+    (function(){
+      const MAX_ROWS = 10;
+
+      function findItem(sku){
+        if (!BOOT || !BOOT.items) return null;
+        return BOOT.items.find(x => String(x.SKU) === String(sku)) || null;
+      }
+
+      function skuInput(listId){
+        return `<input class="form-control sku" list="${listId}" placeholder="SKU" autocomplete="off" required>`;
+      }
+      function readonlyInput(cls, ph){ return `<input class="form-control ${cls}" placeholder="${ph||'—'}" disabled>`; }
+      function qtyInput(min){ return `<input type="number" class="form-control qty" min="${min||1}" value="1" required>`; }
+
+      function rowTpl(kind){
+        // kind: 'rc' or 'is'
+        return `
+          <div class="p-2 border rounded-3 rcis-row">
+            <div class="row g-2 align-items-end">
+              <div class="col-sm-4">
+                <label class="form-label">SKU</label>
+                ${skuInput('skuList')}
+              </div>
+              <div class="col-sm-4">
+                <label class="form-label">Item</label>
+                ${readonlyInput('name','Item name')}
+              </div>
+              <div class="col-sm-2">
+                <label class="form-label">UoM</label>
+                ${readonlyInput('uom','—')}
+              </div>
+              <div class="col-sm-2">
+                <label class="form-label">On-hand</label>
+                ${readonlyInput('cur','0')}
+              </div>
+              <div class="col-sm-3">
+                <label class="form-label">${kind==='rc'?'Qty to Receive':'Qty to Pull-out'}</label>
+                ${qtyInput(1)}
+              </div>
+              <div class="col-sm-2 d-flex gap-2">
+                <button type="button" class="btn btn-light-alt w-100 btn-remove">Remove</button>
+              </div>
+            </div>
+          </div>`;
+      }
+
+      function wireRow(container, rowEl, kind){
+        const skuEl = rowEl.querySelector('.sku');
+        const nameEl= rowEl.querySelector('.name');
+        const uomEl = rowEl.querySelector('.uom');
+        const curEl = rowEl.querySelector('.cur');
+        const qtyEl = rowEl.querySelector('.qty');
+        const rmBtn = rowEl.querySelector('.btn-remove');
+
+        rmBtn.addEventListener('click', ()=> {
+          rowEl.remove();
+        });
+
+        skuEl.addEventListener('change', ()=>{
+          const sku = skuEl.value.trim();
+          if (!sku) return;
+
+          // no duplicates
+          const all = Array.from(container.querySelectorAll('.sku')).map(i => i.value.trim()).filter(Boolean);
+          const dups = all.filter((s,idx,arr)=> arr.indexOf(s) !== idx);
+          if (dups.includes(sku)) {
+            toast({ title:'Duplicate SKU', message:`${sku} already added.`, type:'warning' });
+            skuEl.value = '';
+            nameEl.value = uomEl.value = curEl.value = '';
+            return;
+          }
+
+          const it = findItem(sku);
+          if (!it) {
+            toast({ title:'Not found', message:`SKU ${sku} does not exist.`, type:'danger' });
+            skuEl.value = '';
+            return;
+          }
+          if (String(it.Status) !== 'Active') {
+            toast({ title:'Inactive', message:`${sku} is not Active.`, type:'warning' });
+            skuEl.value = '';
+            return;
+          }
+
+          nameEl.value = it.Name || '';
+          uomEl.value  = it.UoM || '';
+          curEl.value  = Number(it.Qty||0);
+
+          if (kind === 'is') {
+            // cannot exceed onhand
+            qtyEl.setAttribute('max', String(Number(it.Qty||0)));
+          }
+        });
+      }
+
+      // ---- Receive modal
+      (function(){
+        const rowsHost = document.getElementById('rcRows');
+        const addBtn   = document.getElementById('rcAddRow');
+        const form     = document.getElementById('formReceive');
+        if (!rowsHost || !addBtn || !form) return;
+
+        function addRow(){
+          if (rowsHost.querySelectorAll('.rcis-row').length >= MAX_ROWS) {
+            toast({ title:'Limit reached', message:`Maximum of ${MAX_ROWS} items.`, type:'warning' });
+            return;
+          }
+          const div = document.createElement('div');
+          div.innerHTML = rowTpl('rc');
+          const el = div.firstElementChild;
+          rowsHost.appendChild(el);
+          wireRow(rowsHost, el, 'rc');
+        }
+
+        addBtn.addEventListener('click', addRow);
+        // start with one row each open
+        $('#modalReceive').addEventListener('shown.bs.modal', ()=>{
+          rowsHost.innerHTML = '';
+          addRow();
+        });
+
+        form.addEventListener('submit', (e)=>{
+          e.preventDefault();
+          const btn = e.submitter;
+          const note = document.getElementById('rcNotes').value.trim();
+
+          const rows = Array.from(rowsHost.querySelectorAll('.rcis-row'));
+          if (!rows.length) { toast('Add at least one item','warning'); return; }
+
+          const items = [];
+          for (const r of rows) {
+            const sku = r.querySelector('.sku')?.value.trim();
+            const qty = Number(r.querySelector('.qty')?.value);
+            const cur = Number(r.querySelector('.cur')?.value);
+            const name= r.querySelector('.name')?.value;
+            const uom = r.querySelector('.uom')?.value;
+
+            if (!sku || !(qty>0)) { toast('Check item rows','warning'); return; }
+            const it = findItem(sku);
+            if (!it || String(it.Status)!=='Active') { toast(`SKU ${sku} must be Active`,'danger'); return; }
+
+            items.push({ sku, qty }); // server will expand to Name/UoM
+          }
+
+          setLoading(btn, true, 'Submitting…');
+          google.script.run
+            .withSuccessHandler(() => {
+              setLoading(btn, false);
+              toast({ title:'Submitted', message:'Receive queued for approval.', type:'success' });
+              form.reset();
+              bootstrap.Modal.getInstance('#modalReceive').hide();
+              loadApp({silent:true});
+            })
+            .withFailureHandler(err=>{
+              setLoading(btn, false);
+              toast({ title:'Error', message: (err && err.message) || String(err), type:'danger' });
+            })
+            .actionReceiveMulti(items, note);
+        });
+      })();
+
+      // ---- Issue modal
+      (function(){
+        const rowsHost = document.getElementById('isRows');
+        const addBtn   = document.getElementById('isAddRow');
+        const form     = document.getElementById('formIssue');
+        if (!rowsHost || !addBtn || !form) return;
+
+        function addRow(){
+          if (rowsHost.querySelectorAll('.rcis-row').length >= MAX_ROWS) {
+            toast({ title:'Limit reached', message:`Maximum of ${MAX_ROWS} items.`, type:'warning' });
+            return;
+          }
+          const div = document.createElement('div');
+          div.innerHTML = rowTpl('is');
+          const el = div.firstElementChild;
+          rowsHost.appendChild(el);
+          wireRow(rowsHost, el, 'is');
+        }
+
+        addBtn.addEventListener('click', addRow);
+        $('#modalIssue').addEventListener('shown.bs.modal', ()=>{
+          rowsHost.innerHTML = '';
+          addRow();
+        });
+
+        form.addEventListener('submit', (e)=>{
+          e.preventDefault();
+          const btn  = e.submitter;
+
+          const emp  = document.getElementById('isEmp').value.trim();
+          const bu   = document.getElementById('isBU').value.trim();
+          const dept = document.getElementById('isDept').value.trim();        // NOW a <select>
+          const loc  = document.getElementById('isDeployLoc').value.trim();   // NEW
+          const rsn  = document.getElementById('isReason').value.trim();
+
+          // Required field checks
+          if (!emp || !bu || !dept || !loc || !rsn) {
+            toast('Please complete Employee, Business Unit, Department, Deployment Location, and Reason.','warning');
+            return;
+          }
+
+          const rows = Array.from(rowsHost.querySelectorAll('.rcis-row'));
+          if (!rows.length) { toast('Add at least one item','warning'); return; }
+
+          const items = [];
+          const seen = new Set();
+          for (const r of rows) {
+            const sku = r.querySelector('.sku')?.value.trim();
+            const qty = Number(r.querySelector('.qty')?.value);
+            if (!sku || !(qty>0)) { toast('Check item rows','warning'); return; }
+            if (seen.has(sku)) { toast(`Duplicate SKU ${sku}`,'danger'); return; } else seen.add(sku);
+
+            const it = findItem(sku);
+            if (!it || String(it.Status)!=='Active') { toast(`SKU ${sku} must be Active`,'danger'); return; }
+            if (qty > Number(it.Qty||0)) { toast(`Cannot issue more than on-hand for ${sku}`,'danger'); return; }
+
+            items.push({ sku, qty });
+          }
+
+          setLoading(btn, true, 'Submitting…');
+          google.script.run
+            .withSuccessHandler(() => {
+              setLoading(btn, false);
+              toast({ title:'Submitted', message:'Issue queued for approval.', type:'success' });
+              form.reset();
+              bootstrap.Modal.getInstance('#modalIssue').hide();
+              loadApp({silent:true});
+            })
+            .withFailureHandler(err=>{
+              setLoading(btn, false);
+              toast({ title:'Error', message: (err && err.message) || String(err), type:'danger' });
+            })
+            // NEW params: businessUnit + deploymentLocation
+            .actionIssueMulti(items, emp, dept, rsn, bu, loc);
+        });
+
+      })();
+    })();
   </script>
 </body>
 </html>
