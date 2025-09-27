@@ -19,6 +19,10 @@ const SHEET_LEDGER  = 'Ledger';
 const SHEET_NOTIFY  = 'Notifications';
 const SHEET_BUS_UNITS = 'Business Unit';
 const SHEET_DEPTS     = 'Departments';
+const SHEET_DEPLOY_LOCS = 'Deployment Location';
+const SHEET_PRICES    = 'Prices';
+const SHEET_CATEGORIES = 'Category';
+
 
 // Notification event keys
 const NE = {
@@ -62,13 +66,16 @@ function ensureColumns(sh, required) {
 }
 function ensureSheets(ss) {
   const want = {
-    [SHEET_USERS]:     ['UserID','Email','Name','Department','RequestedRole','Role','Status','CreatedAt'],
-    [SHEET_ITEMS]:     ['SKU','Name','Description','UoM','Location','Qty','Status','CreatedAt','UpdatedAt'],
-    [SHEET_PENDING]:   ['PendingID','LinkID','When','Type','SKU','Details','Name','UoM','Qty','Delta','Reason','Note','By','Status','ReviewedAt','ReviewedBy','PayloadJSON'],
-    [SHEET_LEDGER]:    ['ID','When','Type','SKU','Item','Delta','UoM','Status','By','ReviewedAt','ReviewedBy','Note'],
-    [SHEET_NOTIFY]:    ['Event','Enabled','Recipients','CC','Threshold','Hour','Note'],
-    [SHEET_BUS_UNITS]: ['Name','Active'],
-    [SHEET_DEPTS]:     ['Name','Active']
+    [SHEET_USERS]:        ['UserID','Email','Name','Department','RequestedRole','Role','Status','CreatedAt'],
+    [SHEET_ITEMS]:        ['SKU','Name','Description','Category','UoM','Location','Qty','Status','CreatedAt','UpdatedAt','UnitPrice'],
+    [SHEET_PENDING]:      ['PendingID','LinkID','When','Type','SKU','Details','Name','UoM','Qty','Delta','Reason','Note','By','Status','ReviewedAt','ReviewedBy','PayloadJSON','Stage','NextRole','ApprovalsJSON'], 
+    [SHEET_LEDGER]:       ['ID','When','Type','SKU','Item','Delta','UoM','Status','By','ReviewedAt','ReviewedBy','Note','ApprovalsJSON'],    
+    [SHEET_NOTIFY]:       ['Event','Enabled','Recipients','CC','Threshold','Hour','Note'],
+    [SHEET_BUS_UNITS]:    ['Name','Active'],
+    [SHEET_DEPTS]:        ['Name','Active'],
+    [SHEET_DEPLOY_LOCS]:  ['Name','Active'], 
+    [SHEET_PRICES]:       ['SKU','Price','At','By','Source','Note','LinkID','PendingID'],
+    [SHEET_CATEGORIES]:   ['Name','Active']
   };
   Object.keys(want).forEach(name => {
     const sh = ss.getSheetByName(name) || ss.insertSheet(name);
@@ -120,6 +127,52 @@ function getSpreadsheetInfo() {
 }
 
 /* ---------------- Helpers ---------------- */
+/* ---------------- Price helpers ---------------- */
+function recordPrice_(sku, price, source, note, linkId, pendingId) {
+  if (!(price > 0)) return; // ignore empty/invalid
+  const me = getCurrentUser();
+  _append(sheet(SHEET_PRICES), {
+    SKU: sku,
+    Price: Number(price),
+    At: nowISO(),
+    By: me.email || '',
+    Source: source || '',
+    Note: note || '',
+    LinkID: linkId || '',
+    PendingID: pendingId || ''
+  });
+  // keep latest on Items for fast reads
+  _updateByKey(sheet(SHEET_ITEMS), 'SKU', sku, { UnitPrice: Number(price), UpdatedAt: nowISO() });
+}
+
+function getPriceHistoryMap_() {
+  const rows = _readObjects(sheet(SHEET_PRICES));
+  const map = {};
+  rows.forEach(r => {
+    const k = String(r.SKU || '');
+    if (!k) return;
+    (map[k] = map[k] || []).push({
+      price: Number(r.Price || 0),
+      at: r.At,
+      by: r.By,
+      source: r.Source || '',
+      note: r.Note || '',
+      linkId: r.LinkID || '',
+      pendingId: r.PendingID || ''
+    });
+  });
+  // newest first
+  Object.keys(map).forEach(k => map[k].sort((a,b)=> new Date(b.at) - new Date(a.at)));
+  return map;
+}
+
+function computePriceStats_(arr) {
+  if (!arr || !arr.length) return { current:null, average:null, count:0 };
+  const current = arr[0].price;
+  const sum = arr.reduce((a,b)=> a + Number(b.price||0), 0);
+  return { current, average: (arr.length ? (sum/arr.length) : null), count: arr.length };
+}
+
 function _readObjects(sh) {
   const vals = sh.getDataRange().getValues();
   if (vals.length < 2) return [];
@@ -294,7 +347,7 @@ function getMyActivity() {
 function getBootstrap() {
   // Make columns E..H = RequestedRole, Role, Status, CreatedAt
   normalizeUsersSheet();
-  ensureUsersTimestampColumnAndBackfill(); // will now fill column H only
+  ensureUsersTimestampColumnAndBackfill();
 
   const me = getCurrentUser();
   const info = getSpreadsheetInfo();
@@ -305,28 +358,48 @@ function getBootstrap() {
 
   const my = getMyActivity();
 
-  // NEW: lookups for Issue modal dropdowns
-  let businessUnits = [], departments = [];
+  let businessUnits = [], departments = [], deploymentLocations = [], categories = [];
   try { businessUnits = _readObjects(sheet(SHEET_BUS_UNITS)); } catch(e){}
   try { departments   = _readObjects(sheet(SHEET_DEPTS)); } catch(e){}
+  try { deploymentLocations  = _readObjects(sheet(SHEET_DEPLOY_LOCS)); } catch(e){}
+  try { categories    = _readObjects(sheet(SHEET_CATEGORIES)); } catch(e){} 
+  // Enrich items with price history + rollups
+  let items = getItems();
+  let priceMap = {};
+  try { priceMap = getPriceHistoryMap_(); } catch(e){ priceMap = {}; }
+  items = items.map(it => {
+    const ph = priceMap[it.SKU] || [];
+    const stats = computePriceStats_(ph);
+    return {
+      ...it,                          // includes it.Category from sheet
+      PriceHistory: ph,
+      PriceCurrent: stats.current,
+      PriceAverage: stats.average,
+      PriceCount: stats.count
+    };
+  });
 
   return {
     user: me,
     counts: getCounts(),
-    items: getItems(),
+    items,
     pending: getPending(),
     usersPending,
     ledger: getLedger(500),
     minePending: my.minePending,
     mineLedger:  my.mineLedger,
     db: info,
-    // NEW keys (the FE checks both top-level and .lookups)
     businessUnits,
     departments,
-    lookups: { businessUnits, departments }
+    deploymentLocations,
+    categories,                  
+    lookups: { businessUnits, departments, deploymentLocations, categories } 
   };
 }
 
+
+
+/* ---------------- SKU History (normalized; supports multi-item tx) ---------------- */
 /* ---------------- SKU History (normalized; supports multi-item tx) ---------------- */
 function getSkuHistory(sku) {
   if (!sku) throw new Error('Missing SKU');
@@ -336,6 +409,10 @@ function getSkuHistory(sku) {
   const penRows = _readObjects(sheet(SHEET_PENDING));
   const penByLink = Object.fromEntries(penRows.map(p => [String(p.LinkID), p]));
 
+  // Price history (for initial price on creation)
+  let priceMap = {};
+  try { priceMap = getPriceHistoryMap_(); } catch(e){ priceMap = {}; }
+
   function splitSkus(cell) {
     return String(cell || '')
       .split(',')
@@ -343,65 +420,67 @@ function getSkuHistory(sku) {
       .filter(Boolean);
   }
 
-function addStamps(baseNote, l, p) {
-  const note = String(baseNote || '').trim();
-  const addLines = [];
+  function addStamps(baseNote, l, p) {
+    const note = String(baseNote || '').trim();
+    const addLines = [];
 
-  // Normalize helpers
-  const norm = s => String(s || '').trim().toLowerCase();
-  const noteNorm = norm(note);
-  const hasSameRemark = (txt) => {
-    if (!txt) return false;
-    const r = norm(txt);
-    return noteNorm.includes('remarks: ' + r) ||
-           noteNorm.includes('remark: '  + r) ||
-           noteNorm.includes('notes: '   + r) ||
-           noteNorm.includes('note: '    + r);
-  };
+    // Normalize helpers
+    const norm = s => String(s || '').trim().toLowerCase();
+    const noteNorm = norm(note);
+    const hasSameRemark = (txt) => {
+      if (!txt) return false;
+      const r = norm(txt);
+      return noteNorm.includes('remarks: ' + r) ||
+             noteNorm.includes('remark: '  + r) ||
+             noteNorm.includes('notes: '   + r) ||
+             noteNorm.includes('note: '    + r);
+    };
 
-  // Requester meta (Reason / Remarks) — deduped against existing note
-  try {
-    const pj = p && p.PayloadJSON ? JSON.parse(p.PayloadJSON) : null;
-    const reason  = pj && pj.reason ? String(pj.reason).trim() : (p && p.Reason ? String(p.Reason).trim() : '');
-    const remarks = pj && pj.note   ? String(pj.note).trim()   : '';
+    // Requester meta (Reason / Remarks)
+    try {
+      const pj = p && p.PayloadJSON ? JSON.parse(p.PayloadJSON) : null;
+      const reason  = pj && pj.reason ? String(pj.reason).trim() : (p && p.Reason ? String(p.Reason).trim() : '');
+      const remarks = pj && pj.note   ? String(pj.note).trim()   : '';
+      if (reason && !noteNorm.includes(('reason: ' + norm(reason)))) addLines.push('Reason: ' + reason);
+      if (remarks && !hasSameRemark(remarks)) addLines.push('Remarks: ' + remarks);
+    } catch(e){}
 
-    if (reason && !noteNorm.includes(('reason: ' + norm(reason)))) {
-      addLines.push('Reason: ' + reason);
+    // Submitted
+    if (p) {
+      const tag = '[Submitted by ';
+      if (!note.includes(tag)) {
+        const whenLocal = p.When ? new Date(p.When).toLocaleString() : '';
+        addLines.push(`[Submitted by ${p.By || '—'} @ ${whenLocal}]`);
+      }
     }
-    if (remarks && !hasSameRemark(remarks)) {
-      // Canonicalize to "Remarks" everywhere
-      addLines.push('Remarks: ' + remarks);
-    }
-  } catch(e){}
 
-  // Submitted stamp
-  if (p) {
-    const tag = '[Submitted by ';
-    if (!note.includes(tag)) {
-      const whenLocal = p.When ? new Date(p.When).toLocaleString() : '';
-      addLines.push(`[Submitted by ${p.By || '—'} @ ${whenLocal}]`);
+    // Review
+    const reviewedTag =
+      (l.Status === 'Approved') ? '[Approved by ' :
+      (l.Status === 'Declined') ? '[Declined by ' :
+      (l.Status === 'Voided')   ? '[Voided by '   : null;
+
+    if (reviewedTag && !note.includes(reviewedTag)) {
+      const ts = l.ReviewedAt ? new Date(l.ReviewedAt).toLocaleString() : '';
+      const tail =
+        (l.Status === 'Declined' || l.Status === 'Voided')
+          ? ((p && p.Reason) ? ` — Reason: ${String(p.Reason).trim()}` : '')
+          : '';
+      addLines.push(`${reviewedTag}${l.ReviewedBy || '—'} @ ${ts}]${tail}`);
     }
+
+    // Creation hint + initial price (if CREATE_SKU)
+    if (String(l.Type) === 'CREATE_SKU') {
+      if (!/created\b/i.test(note)) addLines.push('Created');
+      try {
+        const ph = priceMap[sku] || [];
+        const hit = ph.find(x => (x.source === 'CREATE_SKU') && (x.linkId === l.ID || x.pendingId === (p && p.PendingID)));
+        if (hit && Number(hit.price) > 0) addLines.push('Initial Price: ' + formatPHP_(hit.price));
+      } catch(e){}
+    }
+
+    return appendNoteUnique_(note, addLines.filter(Boolean).join('\n'));
   }
-
-  // Review stamp(s)
-  const reviewedTag =
-    (l.Status === 'Approved') ? '[Approved by ' :
-    (l.Status === 'Declined') ? '[Declined by ' :
-    (l.Status === 'Voided')   ? '[Voided by '   : null;
-
-  if (reviewedTag && !note.includes(reviewedTag)) {
-    const ts = l.ReviewedAt ? new Date(l.ReviewedAt).toLocaleString() : '';
-    const tail =
-      (l.Status === 'Declined' || l.Status === 'Voided')
-        ? ((p && p.Reason) ? ` — Reason: ${String(p.Reason).trim()}` : '')
-        : '';
-    addLines.push(`${reviewedTag}${l.ReviewedBy || '—'} @ ${ts}]${tail}`);
-  }
-
-  return appendNoteUnique_(note, addLines.filter(Boolean).join('\n'));
-}
-
-
 
   const out = [];
 
@@ -410,7 +489,7 @@ function addStamps(baseNote, l, p) {
     const isMulti = skus.length > 1;
     const p = penByLink[l.ID] || null;
 
-    // --- Single-item rows (legacy path) ---
+    // --- Single-item rows ---
     if (!isMulti) {
       if (skus[0] !== sku) return;
       const delta = Number(l.Delta || 0);
@@ -421,8 +500,8 @@ function addStamps(baseNote, l, p) {
         pendingId:(p && p.PendingID) || '',
         when:     l.When,
         type:     l.Type,
-        qty:      Math.abs(delta),
-        delta:    delta,
+        qty:      String(l.Type) === 'CREATE_SKU' ? '' : Math.abs(delta),
+        delta:    String(l.Type) === 'CREATE_SKU' ? 0 : delta,
         uom:      l.UoM || '',
         by:       l.By || '',
         status:   l.Status || '',
@@ -432,7 +511,7 @@ function addStamps(baseNote, l, p) {
       return;
     }
 
-    // --- Multi-item rows (new batch path) ---
+    // --- Multi-item rows (batch) ---
     if (!skus.includes(sku)) return;
 
     let itemRec = null;
@@ -445,10 +524,10 @@ function addStamps(baseNote, l, p) {
 
     let qty = null, uom = '';
     if (itemRec) {
-      qty = Number(itemRec.qty || 0);
+      qty = (String(l.Type) === 'CREATE_SKU') ? null : Number(itemRec.qty || 0);
       uom = itemRec.UoM || '';
     } else {
-      // Fallback: parse the matching line in the organized list within Ledger.Note
+      // Fallback parse (for receive/issue lines only)
       const line = String(l.Note || '')
         .split('\n')
         .map(s => s.trim())
@@ -472,7 +551,7 @@ function addStamps(baseNote, l, p) {
       when:      l.When,
       type:      l.Type,
       qty:       (qty != null ? qty : ''),
-      delta:     delta,
+      delta:     (qty != null ? delta : 0),
       uom:       uom || (l.UoM === 'mixed' ? '' : l.UoM || ''),
       by:        l.By || '',
       status:    l.Status || '',
@@ -481,10 +560,45 @@ function addStamps(baseNote, l, p) {
     });
   });
 
-  // newest first for the modal
+  // ===== NEW: Ensure a CREATE_SKU record exists (synthesize if missing) =====
+  const hasCreate = out.some(r => String(r.type) === 'CREATE_SKU');
+  if (!hasCreate) {
+    const it = _findBy(sheet(SHEET_ITEMS), 'SKU', sku);
+    if (it) {
+      // Try to attach an "initial price": prefer a price with source CREATE_SKU,
+      // otherwise fall back to the oldest price we have.
+      let initPriceNote = '';
+      try {
+        const ph = (priceMap[sku] || []).slice();         // newest-first by getPriceHistoryMap_
+        const createHit = ph.find(x => x.source === 'CREATE_SKU');
+        const oldest = ph.length ? ph[ph.length - 1] : null;
+        const pick = createHit || oldest;
+        if (pick && Number(pick.price) > 0) {
+          initPriceNote = '\nInitial Price: ' + formatPHP_(pick.price);
+        }
+      } catch(e){}
+
+      out.push({
+        linkId:   '',                 // no ledger ID (synthetic)
+        pendingId:'',
+        when:     it.CreatedAt || it.UpdatedAt || nowISO(),
+        type:     'CREATE_SKU',
+        qty:      '',
+        delta:    0,
+        uom:      it.UoM || '',
+        by:       '',                 // unknown
+        status:   'Approved',         // treat as established
+        note:     ('Created (inferred)' + initPriceNote).trim(),
+        item:     it.Name || ''
+      });
+    }
+  }
+  // ===== END NEW =====
+
   out.sort((a, b) => new Date(b.when) - new Date(a.when));
   return out;
 }
+
 
 
 
@@ -509,7 +623,11 @@ function queuePending(rec) {
     if (!noteNorm.includes(`remarks: ${n.toLowerCase()}`)) reqBits.push('Remarks: ' + n);
   }
 
-  // NEW: add Issued-To / BU / Deployment lines into Notes (if provided via payload.meta)
+  // Price (single-item create/modify only, if provided)
+  const payloadPrice = (rec && rec.payload && Number(rec.payload.price) > 0) ? Number(rec.payload.price) : null;
+  const priceLine = payloadPrice ? ('Unit Price: ' + formatPHP_(payloadPrice)) : '';
+
+  // meta
   const meta = rec && rec.payload && rec.payload.meta ? rec.payload.meta : null;
   const issuedToLine = (meta && (meta.employee || meta.department))
     ? `Issued To: ${safe(meta.employee || '—')} (${safe(meta.department || '—')})`
@@ -519,14 +637,15 @@ function queuePending(rec) {
 
   const submitStamp = stamp_('Submitted', me.email, '');
 
-  // Notes now include the extra meta lines, de-duped
+  // Note (include price line if present)
   const noteWithMeta = appendNoteUnique_(
-    [baseNote, issuedToLine, buLine, deployLine, reqBits.join(' | ')].filter(Boolean).join('\n'),
+    [priceLine, baseNote, issuedToLine, buLine, deployLine, reqBits.join(' | ')].filter(Boolean).join('\n'),
     submitStamp
   );
 
-  // Details unchanged (already included meta earlier, keep it)
+  // Details (include price at the front when present)
   const details = [
+    priceLine,
     issuedToLine, buLine, deployLine,
     reqBits.join(' | '),
     submitStamp
@@ -540,21 +659,28 @@ function queuePending(rec) {
     Note: noteWithMeta
   });
 
+    // decide staged flow
+  const stage1Role =
+    (rec.type === 'RECEIVE') ? 'controller' :
+    (rec.type === 'ISSUE')   ? 'manager'    :
+    ''; // others won’t call queuePending (see actions section)
+
   _append(sheet(SHEET_PENDING), {
     PendingID: pendingId, LinkID: linkId, When: nowISO(),
     Type: rec.type, SKU: rec.sku || '', Details: details,
     Name: rec.name || '', UoM: rec.uom || '', Qty: rec.qty || 0,
     Delta: rec.delta || 0, Reason: rec.reason || '',
     Note: noteWithMeta, By: me.email, Status: 'Pending',
-    PayloadJSON: rec.payload ? JSON.stringify(rec.payload) : ''
+    PayloadJSON: rec.payload ? JSON.stringify(rec.payload) : '',
+    Stage: 1,                          // ⬅ NEW
+    NextRole: stage1Role,              // ⬅ NEW
+    ApprovalsJSON: JSON.stringify([])  // ⬅ NEW
   });
+
 
   notifyPendingCreated({ linkId, pendingId, rec, by: me.email });
   return { ok:true, pendingId, linkId };
 }
-
-
-
 
 function queuePendingMulti(rec) {
   const me = getCurrentUser();
@@ -575,6 +701,12 @@ function queuePendingMulti(rec) {
 
   const sum = _summarizeMulti_(rec.type, rec.items, rec.note);
   const submitStamp = stamp_('Submitted', me.email, '');
+  // Build a CSV of names so the Item cell always shows them even if the UI parser misses CREATE_SKU notes
+  const namesCsv = rec.items
+    .map(i => (i.Name != null ? i.Name : i.name) || '')
+    .filter(Boolean)
+    .join(', ');
+  const itemCell = namesCsv ? (sum.title + '\n' + namesCsv) : sum.title;
 
   const noteNorm = String(rec.note || '').toLowerCase();
   const reqMeta = [];
@@ -615,6 +747,11 @@ function queuePendingMulti(rec) {
     Status: 'Pending', By: me.email, Note: ledgerNote
   });
 
+    const stage1Role =
+    (rec.type === 'RECEIVE') ? 'controller' :
+    (rec.type === 'ISSUE')   ? 'manager'    :
+    '';
+
   _append(sheet(SHEET_PENDING), {
     PendingID: pendingId, LinkID: linkId, When: nowISO(),
     Type: rec.type, SKU: skus.join(', '), Details: details,
@@ -626,8 +763,12 @@ function queuePendingMulti(rec) {
       note: rec.note || '',
       reason: rec.reason || '',
       meta: meta || null
-    })
+    }),
+    Stage: 1,                          // ⬅ NEW
+    NextRole: stage1Role,              // ⬅ NEW
+    ApprovalsJSON: JSON.stringify([])  // ⬅ NEW
   });
+
 
   notifyPendingCreated({
     linkId, pendingId,
@@ -642,93 +783,152 @@ function queuePendingMulti(rec) {
 
 
 /* ---------------- Actions ---------------- */
-function actionCreateSku(payload) {
-  if (!payload) throw new Error('Missing payload');
-  if (!payload.sku) payload.sku = nextSkuId();
-  return queuePending({
-    type:'CREATE_SKU', sku:payload.sku, name:payload.name, uom:payload.uom,
-    note:`Create ${payload.sku} — ${payload.name}`, payload
+function _immediateLedger_(type, linkId, payload, note, skuCsv, itemTitle, uomCell, deltaNum){
+  _append(sheet(SHEET_LEDGER), {
+    ID: linkId,
+    When: nowISO(),
+    Type: type,
+    SKU: skuCsv,
+    Item: itemTitle,
+    Delta: deltaNum,
+    UoM: uomCell,
+    Status: 'Approved',
+    By: getCurrentUser().email,
+    Note: appendNoteUnique_(note || '', stamp_('Approved', getCurrentUser().email, ''))
   });
 }
 
-// NEW: batch create
+function actionCreateSku(payload) {
+  if (!payload) throw new Error('Missing payload');
+  if (!payload.sku) payload.sku = nextSkuId();
+
+  // Upsert item
+  const itemsSh = sheet(SHEET_ITEMS);
+  ensureColumns(itemsSh, ['Category']);
+  const existing = _findBy(itemsSh, 'SKU', payload.sku);
+  const patch = {
+    SKU: payload.sku,
+    Name: payload.name || (existing && existing.Name) || '',
+    Description: payload.desc || (existing && existing.Description) || '',
+    Category: payload.category || payload.Category || (existing && existing.Category) || '',
+    UoM: payload.uom || (existing && existing.UoM) || '',
+    Location: payload.loc || (existing && existing.Location) || '',
+    Qty: Number(existing ? (existing.Qty || 0) : 0),
+    Status: existing ? (existing.Status || 'Active') : 'Active',
+    CreatedAt: existing ? (existing.CreatedAt || nowISO()) : nowISO(),
+    UpdatedAt: nowISO()
+  };
+  if (existing) _updateByKey(itemsSh, 'SKU', payload.sku, patch); else _append(itemsSh, patch);
+  if (payload.price && Number(payload.price) > 0) {
+    recordPrice_(payload.sku, Number(payload.price), 'CREATE_SKU', 'Initial price', '', '');
+  }
+
+  const linkId = nextTrxId();
+  const note = `Create ${payload.sku} — ${payload.name}${payload.price ? ' ('+formatPHP_(payload.price)+')' : ''}`;
+  _immediateLedger_('CREATE_SKU', linkId, payload, note, payload.sku, payload.name, payload.uom || '', 0);
+
+  // Notify like "Approved — Create SKU"
+  const pseudoPen = { Type:'CREATE_SKU', SKU:payload.sku, Name:payload.name, UoM:payload.uom||'', Qty:'', Delta:0, By:getCurrentUser().email, Note:note, Reason:'', PendingID:'', LinkID:linkId, PayloadJSON: JSON.stringify(payload) };
+  notifyApprovedEvent('CREATE_SKU', pseudoPen);
+  notifyRequesterResult('Approved', pseudoPen);
+  return { ok:true, linkId, sku: payload.sku };
+}
+
+
+
 function actionCreateSkus(items, note) {
   if (!Array.isArray(items) || !items.length) throw new Error('No items to create.');
-  // Normalize + assign SKUs
+
+  const itemsSh = sheet(SHEET_ITEMS);
+  ensureColumns(itemsSh, ['Category']);
+
   const batch = items.map(it => {
-    const sku = it.sku && String(it.sku).trim() ? String(it.sku).trim() : nextSkuId();
-    const name = String(it.name || '').trim();
-    const uom  = String(it.uom  || '').trim();
-    const desc = String(it.desc || '').trim();
-    const loc  = String(it.loc  || '').trim();
-    if (!name) throw new Error('Item name is required for all rows.');
-    return { SKU: sku, Name: name, UoM: uom, Description: desc, Location: loc, qty: '', delta: 0 };
+    const sku   = it.sku && String(it.sku).trim() ? String(it.sku).trim() : nextSkuId();
+    const name  = String(it.name || '').trim(); if (!name) throw new Error('Item name is required for all rows.');
+    const uom   = String(it.uom  || '').trim();
+    const desc  = String(it.desc || '').trim();
+    const loc   = String(it.loc  || '').trim();
+    const cat   = String(it.category || it.Category || '').trim();
+    const price = (it.price && Number(it.price) > 0) ? Number(it.price) : '';
+
+    const existing = _findBy(itemsSh, 'SKU', sku);
+    const patch = {
+      SKU: sku, Name: name, Description: desc, Category: cat, UoM: uom, Location: loc,
+      Qty: Number(existing ? (existing.Qty || 0) : 0),
+      Status: existing ? (existing.Status || 'Active') : 'Active',
+      CreatedAt: existing ? (existing.CreatedAt || nowISO()) : nowISO(),
+      UpdatedAt: nowISO()
+    };
+    if (existing) _updateByKey(itemsSh, 'SKU', sku, patch); else _append(itemsSh, patch);
+    if (price) recordPrice_(sku, price, 'CREATE_SKU', 'Initial price', '', '');
+    return { SKU: sku, Name: name, UoM: uom, qty: 0, delta: 0, price };
   });
-  return queuePendingMulti({
-    type: 'CREATE_SKU',
-    items: batch,
-    note: String(note || '')
-  });
+
+  const linkId = nextTrxId();
+  const sum = _summarizeMulti_('CREATE_SKU', batch, note);
+  _immediateLedger_('CREATE_SKU', linkId, { items: batch, note: String(note||'') }, sum.listText, batch.map(b=>b.SKU).join(', '), sum.title, 'mixed', 0);
+
+  const pseudoPen = { Type:'CREATE_SKU', SKU: batch.map(b=>b.SKU).join(', '), Name: sum.title, UoM:'mixed', Qty:'', Delta:0, By:getCurrentUser().email, Note: sum.listText, Reason:'', PendingID:'', LinkID:linkId, PayloadJSON: JSON.stringify({items:batch}) };
+  notifyApprovedEvent('CREATE_SKU', pseudoPen);
+  notifyRequesterResult('Approved', pseudoPen);
+  return { ok:true, linkId, created: batch.length };
 }
 
 
 function actionModifySku(payload) {
   if (!payload || !payload.sku) throw new Error('Missing SKU');
 
-  const it = _findBy(sheet(SHEET_ITEMS), 'SKU', payload.sku);
-  if (!it) throw new Error('SKU not found');
+  const itemsSh = sheet(SHEET_ITEMS);
+  const it = _findBy(itemsSh, 'SKU', payload.sku); if (!it) throw new Error('SKU not found');
+  ensureColumns(itemsSh, ['Category']);
 
-  // Allow changing Status between Active <-> On Hold via Modify (retire stays a separate action)
-  const fields = [
-    ['Name','name'],
-    ['Description','desc'],
-    ['UoM','uom'],
-    ['Location','loc'],
-    ['Status','status'] // NEW
-  ];
+  // Apply patches (same validations as before)
+  const statusTo = (payload && typeof payload.status !== 'undefined')
+    ? (['Active','On Hold'].includes(String(payload.status)) ? String(payload.status) : it.Status)
+    : it.Status;
+  if (String(it.Status) === 'Retired') throw new Error('Cannot modify a Retired item.');
 
-  const changes = [];
-  fields.forEach(([col,key])=>{
-    const from = it[col] ?? '';
-    let to   = (payload[key] ?? from);
-
-    if (col === 'Status') {
-      if (String(it.Status) === 'Retired') {
-        throw new Error('Cannot modify a Retired item. Receive stock (reactivate) before changes.');
-      }
-      if (to === '' || to === null || to === undefined) to = from;
-      if (String(to) === 'Retired') {
-        throw new Error('Use the Retire SKU action to retire an item.');
-      }
-      if (!['Active','On Hold'].includes(String(to))) {
-        throw new Error('Status must be either "Active" or "On Hold".');
-      }
-    }
-
-    if (String(from) !== String(to)) changes.push({ field: col, from, to });
+  _updateByKey(itemsSh, 'SKU', payload.sku, {
+    Name:        (payload && payload.name) ?? it.Name,
+    Description: (payload && payload.desc) ?? it.Description,
+    Category:    (payload && (payload.category ?? payload.Category)) ?? it.Category,
+    UoM:         (payload && payload.uom)  ?? it.UoM,
+    Location:    (payload && payload.loc)  ?? it.Location,
+    Status:      statusTo,
+    UpdatedAt:   nowISO()
   });
+  if (payload && Number(payload.price) > 0) {
+    recordPrice_(payload.sku, Number(payload.price), 'MODIFY_SKU', 'Price adjusted', '', '');
+  }
 
-  const summary = changes.length
-    ? changes.map(c => `${c.field}: “${(c.from ?? '') || '—'}” → “${(c.to ?? '') || '—'}”`).join('; ')
-    : 'No visible field changes';
-  const trimmed = summary.length > 180 ? summary.slice(0,177)+'…' : summary;
+  const linkId = nextTrxId();
+  const summary = `Modify ${payload.sku} — ${(payload.name || it.Name || '')}${payload.price ? ' ('+formatPHP_(payload.price)+')' : ''}`;
+  _immediateLedger_('MODIFY_SKU', linkId, payload, summary, payload.sku, (payload.name || it.Name || ''), (payload.uom || it.UoM || ''), 0);
 
-  return queuePending({
-    type:'MODIFY_SKU',
-    sku: payload.sku,
-    name: payload.name || it.Name || '',
-    uom:  payload.uom  || it.UoM  || '',
-    note: `Modify ${payload.sku} — ${trimmed}`,
-    payload: { ...payload, changes } // includes payload.status when provided
-  });
+  const pseudoPen = { Type:'MODIFY_SKU', SKU:payload.sku, Name:(payload.name || it.Name || ''), UoM:(payload.uom||it.UoM||''), Qty:'', Delta:0, By:getCurrentUser().email, Note:summary, Reason:'', PendingID:'', LinkID:linkId, PayloadJSON: JSON.stringify(payload) };
+  notifyApprovedEvent('MODIFY_SKU', pseudoPen);
+  notifyRequesterResult('Approved', pseudoPen);
+  return { ok:true, linkId };
 }
 
 function actionRetireSku(sku, note) {
   if (!sku) throw new Error('Missing SKU');
-  const it = _findBy(sheet(SHEET_ITEMS), 'SKU', sku);
-  if (!it) throw new Error('SKU not found');
-  return queuePending({ type:'RETIRE_SKU', sku, name:it.Name, uom:it.UoM, note: note || `Retire ${sku}`, payload:{status:'Retired'} });
+  const itemsSh = sheet(SHEET_ITEMS);
+  const it = _findBy(itemsSh, 'SKU', sku); if (!it) throw new Error('SKU not found');
+  if (Number(it.Qty || 0) !== 0) throw new Error('Cannot retire: stock must be exactly 0.');
+
+  _updateByKey(itemsSh, 'SKU', sku, { Status:'Retired', UpdatedAt: nowISO() });
+
+  const linkId = nextTrxId();
+  const summary = note || `Retire ${sku}`;
+  _immediateLedger_('RETIRE_SKU', linkId, { sku }, summary, sku, it.Name, it.UoM, 0);
+
+  const pseudoPen = { Type:'RETIRE_SKU', SKU:sku, Name:it.Name, UoM:it.UoM, Qty:'', Delta:0, By:getCurrentUser().email, Note:summary, Reason:'', PendingID:'', LinkID:linkId };
+  notifyApprovedEvent('RETIRE_SKU', pseudoPen);
+  notifyRequesterResult('Approved', pseudoPen);
+  return { ok:true, linkId };
 }
+
 
 function actionReceive(sku, qty, note, reactivateIfRetired) {
   if (!sku || !(qty > 0)) throw new Error('Invalid receive request');
@@ -741,7 +941,7 @@ function actionReceive(sku, qty, note, reactivateIfRetired) {
   });
 }
 
-function actionIssue(sku, qty, employee, department, reason, businessUnit) {
+function actionIssue(sku, qty, employee, department, reason, businessUnit, deploymentLocation) {
   if (!sku || !(qty > 0)) throw new Error('Invalid issue request');
   const it = _findBy(sheet(SHEET_ITEMS), 'SKU', sku);
   if (!it) throw new Error('SKU not found');
@@ -759,17 +959,19 @@ function actionIssue(sku, qty, employee, department, reason, businessUnit) {
     uom: it.UoM,
     qty,
     delta: -Math.abs(qty),
-    reason,                         // keep reason separate so UI can render "Reason: …"
-    note,                           // now includes Department | Business Unit
-    payload: {                      // optional meta for future use
+    reason,
+    note,
+    payload: {
       meta: {
         employee: String(employee || ''),
         department: String(department || ''),
-        businessUnit: businessUnit ? String(businessUnit) : ''
+        businessUnit: businessUnit ? String(businessUnit) : '',
+        deploymentLocation: deploymentLocation ? String(deploymentLocation) : ''   // ⬅ NEW
       }
     }
   });
 }
+
 
 
 
@@ -788,7 +990,7 @@ function actionReceiveMulti(items, note) {
   return queuePendingMulti({ type:'RECEIVE', items: all, note: note||'' });
 }
 
-function actionIssueMulti(items, employee, department, reason, businessUnit) {
+function actionIssueMulti(items, employee, department, reason, businessUnit, deploymentLocation) {
   if (!Array.isArray(items) || !items.length) throw new Error('No items to issue.');
   if (!employee)   throw new Error('Employee is required.');
   if (!department) throw new Error('Department is required.');
@@ -811,13 +1013,13 @@ function actionIssueMulti(items, employee, department, reason, businessUnit) {
   return queuePendingMulti({
     type: 'ISSUE',
     items: all,
-    note,         // now contains Department | Business Unit
-    reason,       // still rendered separately as "Reason: …"
-    // include meta for completeness (useful in emails/history)
+    note,
+    reason,
     meta: {
       employee: String(employee || ''),
       department: String(department || ''),
-      businessUnit: businessUnit ? String(businessUnit) : ''
+      businessUnit: businessUnit ? String(businessUnit) : '',
+      deploymentLocation: deploymentLocation ? String(deploymentLocation) : ''   // ⬅ NEW
     }
   });
 }
@@ -833,173 +1035,121 @@ function approvePending(pendingId, commentOpt) {
   }
   const pen = _findBy(sheet(SHEET_PENDING), 'PendingID', pendingId);
   if (!pen) throw new Error('Request not found.');
-  if (String(pen.Status) !== 'Pending') {
-    throw new Error('This request has already been processed (status: ' + pen.Status + ').');
+  if (String(pen.Status) !== 'Pending') throw new Error('This request has already been processed (status: ' + pen.Status + ').');
+
+  // Enforce stage gate
+  const stage     = Number(pen.Stage || 1);
+  const nextRole  = String(pen.NextRole || '').trim();
+  if (!nextRole) throw new Error('This request has no next approver role configured.');
+  if (nextRole === 'controller' && me.role !== 'controller') throw new Error('Controller approval required for this step.');
+  if (nextRole === 'manager'    && me.role !== 'manager')    throw new Error('Manager approval required for this step.');
+
+  // Build/extend approval history
+  const stampIso = nowISO();
+  let hist = [];
+  try { hist = pen.ApprovalsJSON ? JSON.parse(pen.ApprovalsJSON) : []; } catch(e){ hist = []; }
+  hist.push({ step: stage, role: nextRole, by: me.email, at: stampIso, comment: String(commentOpt||'') });
+
+  // Visible stamp into notes (emails, Pending, Ledger)
+  const visStamp = stamp_('Approved', me.email, (commentOpt ? (' Comment: ' + String(commentOpt).trim()) : ''));
+  const newPenNote = appendNoteUnique_(pen.Note || '', `[Stage ${stage}] ` + visStamp);
+  _updateByKey(sheet(SHEET_PENDING), 'PendingID', pendingId, {
+    Note: newPenNote,
+    ApprovalsJSON: JSON.stringify(hist)
+  });
+  const led = _findBy(sheet(SHEET_LEDGER), 'ID', pen.LinkID);
+  if (led) {
+    const newLedNote = appendNoteUnique_(led.Note || '', `[Stage ${stage}] ` + visStamp);
+    _updateByKey(sheet(SHEET_LEDGER), 'ID', pen.LinkID, { Note: newLedNote, ApprovalsJSON: JSON.stringify(hist) });
   }
 
-  const itemsSh = sheet(SHEET_ITEMS);
+  // Decide if this is FINAL step or needs escalation
   const type = pen.Type;
+  const finalStep =
+    (type === 'RECEIVE' && nextRole === 'controller') ||
+    (type === 'ISSUE'   && stage === 2 && nextRole === 'controller');
+
+  if (!finalStep) {
+    // move to next stage (ISSUE only: manager -> controller)
+    const next = (type === 'ISSUE' && nextRole === 'manager') ? 'controller' : '';
+    if (!next) throw new Error('Flow configuration error: no next role.');
+    _updateByKey(sheet(SHEET_PENDING), 'PendingID', pendingId, {
+      Stage: stage + 1,
+      NextRole: next
+    });
+    // re-notify next approvers with history included
+    const updated = _findBy(sheet(SHEET_PENDING), 'PendingID', pendingId);
+    notifyPendingCreated({
+      linkId: updated.LinkID,
+      pendingId: updated.PendingID,
+      rec: { type: updated.Type, sku: updated.SKU, name: updated.Name, uom: updated.UoM, delta: updated.Delta, note: updated.Note },
+      by: updated.By
+    });
+    return { ok:true, stage: stage + 1, nextRole: next };
+  }
+
+  // ===== FINAL approval: apply effect & close =====
+  const itemsSh = sheet(SHEET_ITEMS);
   const payload = pen.PayloadJSON ? JSON.parse(pen.PayloadJSON) : null;
 
-    // === Apply effect (single-item legacy OR multi-item new) ===
-    if (payload && Array.isArray(payload.items) && payload.items.length) {
-        if (type === 'RECEIVE') {
-          payload.items.forEach(function(it){
-            const row = _findBy(itemsSh, 'SKU', it.SKU);
-            if (!row) throw new Error('Missing SKU at approval: ' + it.SKU);
-            if (String(row.Status) !== 'Active') throw new Error('Item must be Active at approval: ' + it.SKU);
-            const q = Number(it.qty||0);
-            _updateByKey(itemsSh, 'SKU', it.SKU, { Qty: Number(row.Qty||0) + q, UpdatedAt: nowISO() });
-          });
-        } else if (type === 'ISSUE') {
-          const notifySet = [];
-          payload.items.forEach(function(it){
-            const row = _findBy(itemsSh, 'SKU', it.SKU);
-            if (!row) throw new Error('Missing SKU at approval: ' + it.SKU);
-            if (String(row.Status) !== 'Active') throw new Error('Item must be Active at approval: ' + it.SKU);
-            const q = Number(it.qty||0);
-            const onhand = Number(row.Qty||0);
-            if (q > onhand) throw new Error('Insufficient stock at approval time for ' + it.SKU);
-            const newQty = onhand - q;
-            _updateByKey(itemsSh, 'SKU', it.SKU, { Qty: newQty, UpdatedAt: nowISO() });
-            notifySet.push({ SKU: it.SKU, Name: row.Name, Qty: newQty, UoM: row.UoM, Location: row.Location, Status: row.Status });
-          });
-          maybeNotifyLowStock(notifySet);
-        } else if (type === 'CREATE_SKU') {
-        // create each item; auto-generate SKU when missing
-        const itemsSh = sheet(SHEET_ITEMS);
-        payload.items.forEach(function(it){
-          var sku = String(it.SKU || '').trim();
-          if (!sku) sku = nextSkuId();
+  // === Apply final effect to Items (RECEIVE / ISSUE) ===
+  const itemsArr = (payload && Array.isArray(payload.items)) ? payload.items : null;
 
-          const existing = _findBy(itemsSh, 'SKU', sku);
-          if (existing) {
-            // idempotent: update core fields, keep Qty/status
-            _updateByKey(itemsSh, 'SKU', sku, {
-              SKU: sku,
-              Name: it.Name || existing.Name || '',
-              Description: it.Description || it.desc || existing.Description || '',
-              UoM: it.UoM || existing.UoM || '',
-              Location: it.Location || it.loc || existing.Location || '',
-              Qty: Number(existing.Qty || 0),
-              Status: existing.Status || 'Active',
-              CreatedAt: existing.CreatedAt || nowISO(),
-              UpdatedAt: nowISO()
-            });
-          } else {
-            _append(itemsSh, {
-              SKU: sku,
-              Name: it.Name || '',
-              Description: it.Description || it.desc || '',
-              UoM: it.UoM || '',
-              Location: it.Location || it.loc || '',
-              Qty: 0,
-              Status: 'Active',
-              CreatedAt: nowISO(),
-              UpdatedAt: nowISO()
-            });
-          }
-        });
-      }
-    } else {
-    // Single-item legacy behavior
-    const qty  = Number(pen.Qty || 0);
-    const sku  = (payload && payload.sku) || pen.SKU;
+  function applyDeltaToSku(sku, delta, uomOpt) {
+    const row = _findBy(itemsSh, 'SKU', sku);
+    if (!row) throw new Error('SKU not found during finalize: ' + sku);
 
-    if (type === 'CREATE_SKU') {
-      const name = (payload && payload.name) || pen.Name || '';
-      const desc = (payload && payload.desc) || '';
-      const uom  = (payload && payload.uom) || '';
-      const loc  = (payload && payload.loc) || '';
-      const currentRow = _findBy(itemsSh, 'SKU', sku);
-      if (currentRow) {
-        _updateByKey(itemsSh, 'SKU', sku, {
-          SKU: sku, Name: name, Description: desc, UoM: uom, Location: loc,
-          Qty: Number(currentRow.Qty || 0), Status: currentRow.Status || 'Active',
-          CreatedAt: currentRow.CreatedAt || nowISO(), UpdatedAt: nowISO()
-        });
+    const fromQty = Number(row.Qty || 0);
+    const toQty   = fromQty + Number(delta || 0);
+
+    if (type === 'ISSUE' && toQty < 0) {
+      throw new Error('Cannot issue more than on-hand during finalize: ' + sku);
+    }
+
+    // Optional reactivation for single RECEIVE (from queuePending’s payload.reactivateIfRetired)
+    let statusPatch = {};
+    if (type === 'RECEIVE' && row.Status === 'Retired' && toQty > 0) {
+      if (payload && payload.reactivateIfRetired) {
+        statusPatch = { Status: 'Active' };
       } else {
-        _append(itemsSh, {
-          SKU: sku, Name: name, Description: desc, UoM: uom, Location: loc,
-          Qty: 0, Status: 'Active', CreatedAt: nowISO(), UpdatedAt: nowISO()
-        });
-      }
-    } else if (type === 'MODIFY_SKU') {
-      const it = _findBy(itemsSh, 'SKU', sku);
-      if (it) _updateByKey(itemsSh, 'SKU', sku, {
-        Name:        (payload && payload.name) ?? it.Name,
-        Description: (payload && payload.desc) ?? it.Description,
-        UoM:         (payload && payload.uom)  ?? it.UoM,
-        Location:    (payload && payload.loc)  ?? it.Location,
-        Status: (payload && typeof payload.status !== 'undefined')
-          ? (['Active','On Hold'].includes(String(payload.status)) ? String(payload.status) : it.Status)
-          : it.Status,
-        UpdatedAt: nowISO()
-      });
-    } else if (type === 'RETIRE_SKU') {
-      const it = _findBy(itemsSh, 'SKU', sku);
-      if (it && Number(it.Qty || 0) === 0) {
-        _updateByKey(itemsSh, 'SKU', sku, { Status:'Retired', UpdatedAt:nowISO() });
-      } else {
-        throw new Error('Cannot retire: stock must be exactly 0 at approval time.');
-      }
-    } else if (type === 'RECEIVE') {
-      const it = _findBy(itemsSh, 'SKU', sku);
-      if (it) {
-        const patch = { Qty: Number(it.Qty||0) + qty, UpdatedAt: nowISO() };
-        if (payload && payload.reactivateIfRetired && String(it.Status) === 'Retired') {
-          patch.Status = 'Active'; // reactivate on receive if requested
-        }
-        _updateByKey(itemsSh, 'SKU', sku, patch);
-      }
-    } else if (type === 'ISSUE') {
-      const it = _findBy(itemsSh, 'SKU', sku);
-      if (it) {
-        if (String(it.Status) !== 'Active') throw new Error('Item must be Active at approval time.');
-        const onhand = Number(it.Qty||0);
-        if (qty > onhand) throw new Error('Cannot issue more than on-hand at approval time.');
-        const newQty = onhand - qty;
-        _updateByKey(itemsSh, 'SKU', sku, { Qty: newQty, UpdatedAt: nowISO() });
-        maybeNotifyLowStock([{ SKU: sku, Name: it.Name, Qty: newQty, UoM: it.UoM, Location: it.Location, Status: it.Status }]);
+        statusPatch = { Status: row.Status }; // no change
       }
     }
+
+    _updateByKey(itemsSh, 'SKU', sku, {
+      Qty: toQty,
+      UoM: uomOpt || row.UoM,
+      UpdatedAt: nowISO(),
+      ...statusPatch
+    });
   }
 
-    // === Mark approved + review stamps ===
-  const stampIso   = nowISO();
+  if (itemsArr) {
+    // Multi-item RECEIVE / ISSUE: deltas are already signed in each item.delta
+    itemsArr.forEach(it => applyDeltaToSku(String(it.SKU), Number(it.delta || 0), it.UoM));
+  } else {
+    // Single-item RECEIVE / ISSUE: use pen row fields (Δ already signed)
+    const deltaSigned = Number(pen.Delta || 0);
+    applyDeltaToSku(String(pen.SKU), deltaSigned, pen.UoM);
+  }
+
+  // Mark Approved (final)
   _updateByKey(sheet(SHEET_PENDING), 'PendingID', pendingId, {
     Status: 'Approved',
     ReviewedAt: stampIso,
     ReviewedBy: me.email
   });
-  _updateByKey(sheet(SHEET_LEDGER), 'ID', pen.LinkID, {
+  _updateByKey(sheet(SHEET_LEDGER),  'ID', pen.LinkID, {
     Status: 'Approved',
     ReviewedAt: stampIso,
     ReviewedBy: me.email
   });
 
-  // Append approval stamp (unique)
-  const penAfter  = _findBy(sheet(SHEET_PENDING), 'PendingID', pendingId);
-  const ledAfter  = _findBy(sheet(SHEET_LEDGER),  'ID',        pen.LinkID);
-  const tail = (commentOpt && String(commentOpt).trim()) ? (' Comment: ' + String(commentOpt).trim()) : '';
-  const approvalStamp = stamp_('Approved', me.email, tail);
-
-  const newPenNote = appendNoteUnique_(penAfter.Note || '', approvalStamp);
-  const newLedNote = appendNoteUnique_(ledAfter.Note || '', approvalStamp);
-
-  _updateByKey(sheet(SHEET_PENDING), 'PendingID', pendingId, { Note: newPenNote });
-  _updateByKey(sheet(SHEET_LEDGER),  'ID',        pen.LinkID, { Note: newLedNote });
-
-  // Notifications
   const penNotify = _findBy(sheet(SHEET_PENDING), 'PendingID', pendingId);
   notifyApprovedEvent(type, penNotify);
   notifyRequesterResult('Approved', penNotify);
-
-
-  return { ok:true };
+  return { ok:true, final:true };
 }
-
-
 
 function declinePending(pendingId, reason) {
   const me = getCurrentUser();
@@ -1017,6 +1167,7 @@ function declinePending(pendingId, reason) {
   const stampIso   = nowISO();
   const declineStamp = stamp_('Declined', user, ' — Reason: ' + String(reason).trim());
 
+  // Set statuses on Pending + Ledger
   _updateByKey(sheet(SHEET_PENDING), 'PendingID', pendingId, {
     Status: 'Declined',
     Reason: String(reason).trim(),
@@ -1040,11 +1191,45 @@ function declinePending(pendingId, reason) {
     });
   }
 
+  // Record decline in ApprovalsJSON (history)
+  let hist = [];
+  try { hist = pen.ApprovalsJSON ? JSON.parse(pen.ApprovalsJSON) : []; } catch(e){ hist = []; }
+  hist.push({
+    step: Number(pen.Stage || 1),
+    role: String(pen.NextRole || ''),
+    by: user,
+    at: stampIso,
+    declined: true,
+    reason: String(reason).trim()
+  });
+  _updateByKey(sheet(SHEET_PENDING), 'PendingID', pendingId, { ApprovalsJSON: JSON.stringify(hist) });
+  const led2 = _findBy(sheet(SHEET_LEDGER), 'ID', pen.LinkID);
+  if (led2) _updateByKey(sheet(SHEET_LEDGER), 'ID', pen.LinkID, { ApprovalsJSON: JSON.stringify(hist) });
+
   const updated = _findBy(sheet(SHEET_PENDING), 'PendingID', pendingId);
   notifyRequesterResult('Declined', updated);
   return { ok:true };
 }
 
+function backfillNextRoleOnPending() {
+  const sh = sheet(SHEET_PENDING);
+  ensureColumns(sh, ['Stage','NextRole','ApprovalsJSON']);  // just in case
+  const rows = _readObjects(sh);
+  rows
+    .filter(r => String(r.Status) === 'Pending' && !String(r.NextRole || '').trim())
+    .forEach(r => {
+      const stage = Number(r.Stage || 1);
+      const type  = String(r.Type || '').toUpperCase();
+      const nextRole =
+        (type === 'RECEIVE') ? 'controller' :
+        (type === 'ISSUE'   && stage === 1) ? 'manager' :
+        (type === 'ISSUE'   && stage >= 2) ? 'controller' :
+        ''; // others shouldn't be in Pending
+      if (nextRole) {
+        _updateByKey(sh, 'PendingID', r.PendingID, { Stage: stage || 1, NextRole: nextRole });
+      }
+    });
+}
 
 
 /** ===================== Signed Action Links (Approve/Decline in Email) ===================== **/
@@ -1119,7 +1304,7 @@ function actionButtonsHtml_(buttons) {
 }
 
 function _formatItemsTableHtml_(items) {
-  // items: [{SKU, Name, UoM, qty, delta}]
+  // items: [{SKU, Name, UoM, qty, delta, price?}]
   return '' +
     '<div style="margin-top:12px;font-weight:700">Items ('+items.length+')</div>' +
     '<table role="presentation" width="100%" style="border-collapse:collapse;margin-top:6px">' +
@@ -1128,19 +1313,23 @@ function _formatItemsTableHtml_(items) {
         '<th style="padding:8px 10px;border:1px solid #e5e7eb;background:#f9fafb;text-align:left;color:#6b7280">Item</th>' +
         '<th style="padding:8px 10px;border:1px solid #e5e7eb;background:#f9fafb;text-align:right;color:#6b7280">Qty</th>' +
         '<th style="padding:8px 10px;border:1px solid #e5e7eb;background:#f9fafb;text-align:left;color:#6b7280">UoM</th>' +
+        '<th style="padding:8px 10px;border:1px solid #e5e7eb;background:#f9fafb;text-align:right;color:#6b7280">Price</th>' +
       '</tr></thead>' +
       '<tbody>' +
         items.map(function(it){
+          var p = (it.price && Number(it.price) > 0) ? formatPHP_(it.price) : '';
           return '<tr>' +
             '<td style="padding:8px 10px;border:1px solid #e5e7eb">'+safe(it.SKU)+'</td>' +
             '<td style="padding:8px 10px;border:1px solid #e5e7eb">'+safe(it.Name)+'</td>' +
             '<td style="padding:8px 10px;border:1px solid #e5e7eb;text-align:right"><b>'+safe(it.qty)+'</b></td>' +
             '<td style="padding:8px 10px;border:1px solid #e5e7eb">'+safe(it.UoM)+'</td>' +
+            '<td style="padding:8px 10px;border:1px solid #e5e7eb;text-align:right">'+p+'</td>' +
           '</tr>';
         }).join('') +
       '</tbody>' +
     '</table>';
 }
+
 
 function _summarizeMulti_(type, items, note) {
   var n = items.length;
@@ -1150,20 +1339,32 @@ function _summarizeMulti_(type, items, note) {
         : type;
 
   var lines = items.map(function(it, idx){
+    // read with casing fallbacks
+    var sku = (it.SKU != null ? it.SKU : it.sku);
+    var name = (it.Name != null ? it.Name : it.name);
+    var uom  = (it.UoM  != null ? it.UoM  : it.uom);
+    var qty  = (it.qty  != null ? it.qty  : it.quantity);
+    var price = (it.price != null ? it.price : it.unitPrice);
+
+    var priceBit = (price && Number(price) > 0) ? (' · ' + formatPHP_(price)) : '';
+
     if (type === 'CREATE_SKU') {
-      var skuDisp = safe(it.SKU || '(auto)');
-      var u = safe(it.UoM || '');
-      var loc = safe(it.Location || '');
-      var right = [skuDisp, u && (u+' UoM'), loc && ('@ '+loc)].filter(Boolean).join(' · ');
-      return (idx+1)+'. '+safe(it.Name)+' — '+right;
+      // IMPORTANT: emit the same "<i>. <qty> <uom> — <name> (<SKU>)" pattern
+      // to satisfy your frontend/regex parser (qty is 0 for create)
+      var skuDisp = safe(sku || '(auto)');
+      var u = safe(uom || 'mixed');  // always have a token
+      var nm = safe(name || '(no name)');
+      return (idx+1)+'. 0 ' + u + ' — ' + nm + ' (' + skuDisp + ')' + priceBit;
     }
-    // receive/issue
-    return (idx+1)+'. '+safe(it.qty)+' '+safe(it.UoM)+' — '+safe(it.Name)+' ('+safe(it.SKU)+')';
+
+    // RECEIVE / ISSUE: keep existing shape with fallbacks
+    return (idx+1)+'. ' + safe(qty) + ' ' + safe(uom) + ' — ' + safe(name) + ' (' + safe(sku) + ')' + priceBit;
   }).join('\n');
 
-  var head = t+' — '+n+' item(s)';
+  var head = t + ' — ' + n + ' item(s)';
   return { title: head, listText: lines };
 }
+
 
 
 
@@ -1500,25 +1701,36 @@ function getApprovers() {
     .map(u => String(u.Email || '').trim())
     .filter(Boolean);
 }
-
 function getControllers() {
   return _readObjects(sheet(SHEET_USERS))
     .filter(u => String(u.Role) === 'controller' && String(u.Status) === 'Active')
     .map(u => String(u.Email || '').trim())
     .filter(Boolean);
 }
+function getManagers() {
+  return _readObjects(sheet(SHEET_USERS))
+    .filter(u => String(u.Role) === 'manager' && String(u.Status) === 'Active')
+    .map(u => String(u.Email || '').trim())
+    .filter(Boolean);
+}
+function resolveRoleRecipients(role){
+  if (role === 'controller') return { to: getControllers(), cc: [] };
+  if (role === 'manager')    return { to: getManagers(), cc: [] };
+  return { to: [], cc: [] };
+}
 function resolveRecipients(eventKey, opts) {
-  // When controllersOnly is set, we actually want "approvers only"
-  if (opts && opts.controllersOnly) {
+  if (opts && opts.role) return resolveRoleRecipients(opts.role); // ⬅ NEW
+  if (opts && opts.controllersOnly) {                             // legacy callers
     return { to: getApprovers(), cc: [] };
   }
-  const cfg = readNotifyConfig()[eventKey] || { enabled: true, recipients: [], cc: [] };
+  const cfg = readNotifyConfig()[eventKey] || { enabled:true, recipients:[], cc:[] };
   if (!cfg.enabled) return { to: [], cc: [] };
   let to = [].concat(cfg.recipients || []);
   if (opts && opts.includeControllers) to = to.concat(getControllers());
   to = to.filter(Boolean).filter((v,i,a)=> a.indexOf(v)===i);
   return { to, cc: cfg.cc || [] };
 }
+
 function sendMailSafe(to, subject, html, cc) {
   if (!to || to.length === 0) return;
   try {
@@ -1537,6 +1749,12 @@ function webAppUrl(){
   // If not deployed yet, this may be blank. (We still render the button.)
   return ScriptApp.getService().getUrl() || '';
 }
+function formatPHP_(n) {
+  var x = Number(n);
+  if (!(x > 0)) return '';
+  return '₱' + x.toFixed(2);
+}
+
 function friendlyType(t){
   return ({
     CREATE_SKU:'Create SKU',
@@ -1594,6 +1812,20 @@ function cardEmail(title, rows, opts) {
   '</center>';
 }
 
+function renderHistoryBlock_(penRow){
+  try{
+    const hist = penRow && penRow.ApprovalsJSON ? JSON.parse(penRow.ApprovalsJSON) : [];
+    if (!hist.length) return '';
+    const rows = hist.map(h => {
+      const tag = h.declined ? 'Declined' : 'Approved';
+      const when = h.at ? new Date(h.at).toLocaleString() : '—';
+      const commentBit = h.comment ? (' · ' + safe(h.comment)) : '';
+      const reasonBit  = h.reason  ? (' · Reason: ' + safe(h.reason)) : '';
+      return `<li>${tag} — Step ${safe(h.step)} (${safe(h.role)}) by ${safe(h.by)} @ ${when}${commentBit}${reasonBit}</li>`;
+    }).join('');
+    return `<div style="margin-top:10px;font-weight:700">Previous Decisions</div><ul style="margin-top:6px">${rows}</ul>`;
+  }catch(e){ return ''; }
+}
 
 
 /* ---------- Per-event notifiers ---------- */
@@ -1609,18 +1841,29 @@ function notifyPendingCreated(ctx){
   try { var p = pen && pen.PayloadJSON ? JSON.parse(pen.PayloadJSON) : null; items = (p && p.items) || []; } catch(e){}
 
   // Build extra items table (only when there are items array)
-  var extra = (items && items.length)
-    ? _formatItemsTableHtml_(items)
-    : '';
+  var extra = (items && items.length) ? _formatItemsTableHtml_(items) : '';
+
+  // ⬅️ NEW: history under the items table (or by itself)
+  var historyHtml = renderHistoryBlock_(pen);
+  var extraWithHistory = (extra || '') + historyHtml;
 
   var baseRows = [
     ['Type', typeNice],
     ['SKU', safe(r.sku)],
+    // price (single-item create/modify)
+    (pen && pen.PayloadJSON && (function(){
+       try {
+         const p = JSON.parse(pen.PayloadJSON);
+         const price = (p && Number(p.price) > 0) ? Number(p.price) : null;
+         return price ? ['Unit Price', String(price)] : null;
+       } catch(e){ return null; }
+     })()) || null,
     ['Requested By', safe(ctx.by)],
     ['Note', safe(r.note)],
     ['Pending ID', safe(ctx.pendingId)],
     ['Ledger ID', safe(ctx.linkId)]
-  ];
+  ].filter(Boolean);
+
   if (!items.length) {
     baseRows.splice(2, 0, ['Item', safe(r.name)]);
     baseRows.splice(3, 0, ['Quantity Δ', safe(r.delta)]);
@@ -1628,8 +1871,10 @@ function notifyPendingCreated(ctx){
 
   var subjectSfx = items.length ? (' — ' + items.length + ' item(s)') : (r.sku ? (' — ' + r.sku) : '');
 
-  // 1) Controllers/approvers — one email per approver (not per item)
-  var recips = resolveRecipients(NE.PENDING, { controllersOnly:true }).to;
+  // Role-based recipients for current stage (falls back to controllers if NextRole missing)
+  var nextRole = String(pen && pen.NextRole || '').trim() || 'controller';
+  var recips = resolveRecipients(NE.PENDING, { role: nextRole }).to;
+
   if (recips.length){
     recips.forEach(function(toEmail){
       var approveUrl = makeActionLink_('approve', ctx.pendingId, toEmail);
@@ -1640,7 +1885,7 @@ function notifyPendingCreated(ctx){
         baseRows,
         {
           subtitle: 'You can approve directly from this email.',
-          extraBelow: extra,  // ⬅️ items table injected BEFORE the buttons
+          extraBelow: extraWithHistory,  // ⬅️ history now visible
           buttons: [
             { text:'Approve', href: approveUrl, bg:'#16a34a' },
             { text:'Decline', href: declineUrl, bg:'#dc2626' },
@@ -1652,16 +1897,17 @@ function notifyPendingCreated(ctx){
     });
   }
 
-  // 2) Requester copy (single email)
+  // Requester copy (single email)
   if (ctx.by && /@/.test(ctx.by)) {
     var html2 = cardEmail(
       'Submitted for Approval — ' + typeNice,
       [['Status','Pending']].concat(baseRows),
-      { subtitle:'Your request has been queued and is awaiting controller approval.', extraBelow: extra }
+      { subtitle:'Your request has been queued and is awaiting approval.', extraBelow: extraWithHistory }
     );
     sendMailSafe([ctx.by], ('[Submitted] ' + typeNice + subjectSfx).trim(), html2, []);
   }
 }
+
 
 
 // Approved event (goes to configured recipients for that type)
@@ -1679,7 +1925,7 @@ function notifyApprovedEvent(type, penRow){
 
   const typeNice = friendlyType(type);
 
-  // Detect multi-item payload and compute nice summary
+  // Multi vs single layout
   let isMulti = false;
   let extra = '';
   let rows;
@@ -1687,14 +1933,9 @@ function notifyApprovedEvent(type, penRow){
   try {
     const p = penRow && penRow.PayloadJSON ? JSON.parse(penRow.PayloadJSON) : null;
     const items = (p && Array.isArray(p.items)) ? p.items : [];
-
     if (items.length) {
       isMulti = true;
-
-      // Build the items table shown under the main summary
       extra = _formatItemsTableHtml_(items);
-
-      // Totals and quick facts
       const totalQty   = items.reduce((a,b)=> a + Number(b.qty || 0), 0);
       const totalDelta = items.reduce((a,b)=> a + Number(b.delta || 0), 0);
       const skus       = items.map(it => String(it.SKU || '')).filter(Boolean);
@@ -1702,7 +1943,7 @@ function notifyApprovedEvent(type, penRow){
       const uomCell    = (uoms.length === 1) ? uoms[0] : 'mixed';
 
       rows = [
-        ['Type', `— ${typeNice}`.replace('— ', '')], // keep same wording as before
+        ['Type', typeNice],
         ['SKU', safe(skus.join(', '))],
         ['Items', `${items.length} item(s)`],
         ['UoM', uomCell],
@@ -1714,31 +1955,36 @@ function notifyApprovedEvent(type, penRow){
         ['Ledger ID', safe(penRow.LinkID)]
       ];
     }
-  } catch(e){ /* ignore; fallback handled below */ }
+  } catch(e){}
 
-  // Single-item (legacy) fallback
   if (!isMulti) {
+    let priceRow = null;
+    try {
+      const p = penRow && penRow.PayloadJSON ? JSON.parse(penRow.PayloadJSON) : null;
+      const price = (p && Number(p.price) > 0) ? Number(p.price) : null;
+      if (price) priceRow = ['Unit Price', String(price)];
+    } catch(e){}
     rows = [
       ['SKU', safe(penRow.SKU)],
       ['Item', safe(penRow.Name)],
       ['UoM', safe(penRow.UoM)],
+      priceRow || null,
       ['Quantity', safe(penRow.Qty)],
       ['Δ', safe(penRow.Delta)],
       ['Requested By', safe(penRow.By)],
       ['Note', safe(penRow.Note)],
       ['Pending ID', safe(penRow.PendingID)],
       ['Ledger ID', safe(penRow.LinkID)]
-    ];
+    ].filter(Boolean);
   }
 
-  const html = cardEmail(
-    `Approved — ${typeNice}`,
-    rows,
-    { subtitle: 'Your request has been approved.', extraBelow: extra }
-  );
+  // ⬅️ NEW: history appended
+  const historyHtml = renderHistoryBlock_(penRow);
+  const extraWithHistory = (extra || '') + historyHtml;
+
+  const html = cardEmail(`Approved — ${typeNice}`, rows, { subtitle: 'Your request has been approved.', extraBelow: extraWithHistory });
   sendMailSafe(to, `[Approved] ${typeNice} ${penRow.SKU || ''}`.trim(), html, cc);
 }
-
 
 
 
@@ -1761,12 +2007,9 @@ function notifyRequesterResult(result, penRow){
   try {
     const p = penRow && penRow.PayloadJSON ? JSON.parse(penRow.PayloadJSON) : null;
     const items = (p && Array.isArray(p.items)) ? p.items : [];
-
     if (items.length) {
       isMulti = true;
-
       extra = _formatItemsTableHtml_(items);
-
       const totalQty   = items.reduce((a,b)=> a + Number(b.qty || 0), 0);
       const totalDelta = items.reduce((a,b)=> a + Number(b.delta || 0), 0);
       const skus       = items.map(it => String(it.SKU || '')).filter(Boolean);
@@ -1786,7 +2029,7 @@ function notifyRequesterResult(result, penRow){
         ['Ledger ID', safe(penRow.LinkID)]
       ];
     }
-  } catch(e){ /* ignore */ }
+  } catch(e){}
 
   if (!isMulti) {
     rows = [
@@ -1803,10 +2046,13 @@ function notifyRequesterResult(result, penRow){
     ];
   }
 
-  const html = cardEmail(`${result} — ${typeNice}`, rows, { subtitle, extraBelow: extra });
+  // ⬅️ NEW: history appended
+  const historyHtml = renderHistoryBlock_(penRow);
+  const extraWithHistory = (extra || '') + historyHtml;
+
+  const html = cardEmail(`${result} — ${typeNice}`, rows, { subtitle, extraBelow: extraWithHistory });
   sendMailSafe(to, `[${result}] ${typeNice} ${penRow.SKU || ''}`.trim(), html, []);
 }
-
 
 
 function notifyUserCreated(u){

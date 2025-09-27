@@ -318,18 +318,18 @@
           <div class="d-flex justify-content-between align-items-center mb-2">
             <h6 class="mb-0">Stock Overview</h6>
             <div class="filter-bar">
-              <input id="stockSearch" class="form-control form-control-sm search-input" placeholder="Search SKU / name / location" style="width:240px">
+              <input id="stockSearch" class="form-control form-control-sm search-input" placeholder="Search SKU / name / category" style="width:240px">
               <select id="stockFilterStatus" class="form-select form-select-sm" style="width:120px">
                 <option value="">All Status</option>
                 <option value="Active">Active</option>
                 <option value="On Hold">On Hold</option>
                 <option value="Retired">Retired</option>
               </select>
+              <select id="stockFilterCat" class="form-select form-select-sm" style="width:160px">
+                <option value="">All Categories</option>
+              </select>
               <select id="stockFilterUom" class="form-select form-select-sm" style="width:110px">
                 <option value="">All UoM</option>
-              </select>
-              <select id="stockFilterLoc" class="form-select form-select-sm" style="width:160px">
-                <option value="">All Locations</option>
               </select>
               <button id="stockFilterClear" class="btn btn-light-alt btn-sm">Clear</button>
               <button id="btnDlStock" class="btn btn-light-alt btn-sm"><i class="fa-solid fa-download me-1"></i>Download CSV</button>
@@ -338,7 +338,7 @@
           <div class="table-responsive">
             <table class="table align-middle table-hover" id="tblStock">
               <thead><tr>
-                <th>SKU</th><th>Item Name</th><th>UoM</th><th class="text-end">On-hand</th><th>Location</th><th>Status</th><th class="text-end">Actions</th>
+                <th>SKU</th><th>Item Name</th><th>UoM</th><th class="text-end">Unit Price</th><th class="text-end">On-hand</th><th>Category</th><th>Status</th><th class="text-end">Actions</th>
               </tr></thead>
               <tbody></tbody>
             </table>
@@ -664,14 +664,36 @@
             <div class="col-md-3"><label class="form-label">UoM</label><select id="msUom" class="form-select"></select></div>
             <div class="col-md-3"><label class="form-label">Location</label><input id="msLoc" class="form-control"></div>
 
-            <!-- NEW: Status -->
-            <div class="col-md-3">
+            <div class="col-md-4">
+              <label class="form-label">Category</label>
+              <!-- from "Category" sheet (A=Name, B=Active) -->
+              <select id="msCategory" class="form-select">
+                <option value="" selected disabled>— Select Category —</option>
+              </select>
+            </div>
+
+            <div class="col-md-4">
               <label class="form-label">Status</label>
               <select id="msStatus" class="form-select">
                 <option value="Active">Active</option>
                 <option value="On Hold">On Hold</option>
               </select>
               <div class="form-text">Use <strong>On Hold</strong> to temporarily block issuance.</div>
+            </div>
+
+            <div class="col-md-4">
+              <label class="form-label">Unit Price</label>
+              <div class="input-group">
+                <span class="input-group-text">PHP</span>
+                <input id="msPrice" type="number" step="0.01" min="0" class="form-control" placeholder="0.00">
+              </div>
+              <div class="form-text">Editing price creates a price-history entry.</div>
+            </div>
+
+            <div class="col-md-3 d-flex align-items-end">
+              <button type="button" id="btnOpenPriceHistory" class="btn btn-light-alt w-100">
+                <i class="fa-solid fa-clock-rotate-left me-1"></i>Price History
+              </button>
             </div>
 
             <div class="col-12"><label class="form-label">Remarks</label><textarea id="msNotes" class="form-control" rows="2"></textarea></div>
@@ -776,8 +798,12 @@
 
             <div class="col-md-6">
               <label class="form-label">Deployment Location</label>
-              <input id="isDeployLoc" class="form-control" placeholder="e.g., HO - 3F IT Room" required>
+              <!-- from "Deployment Location" sheet (A=Name, B=Active) -->
+              <select id="isDeployLoc" class="form-select" required>
+                <option value="" selected disabled>— Select Deployment Location —</option>
+              </select>
             </div>
+
 
             <div class="col-md-6">
               <label class="form-label">Reason for Pull-out</label>
@@ -870,15 +896,36 @@
   </div>
 </div>
 
+<!-- Price Histotry -->
+
+<div class="modal fade" id="modalPriceHistory" tabindex="-1">
+  <div class="modal-dialog modal-md modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa-solid fa-tags me-2"></i>Price History</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="priceHistoryBody" class="small">No price history.</div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-light-alt" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
 
   <!-- Templates -->
   <template id="tplStockRow">
     <tr>
       <td><span class="sku-link text-decoration-underline" style="cursor:pointer"></span></td>
-      <td><span class="item-name text-decoration-underline" style="cursor:pointer"></span></td>
+      <td><span class="item-name"></span></td>
       <td class="uom"></td>
+      <td class="price text-end"></td>
       <td class="qty text-end"></td>
-      <td class="loc"></td>
+      <td class="cat"></td>
       <td class="status"></td>
       <td class="text-end">
         <div class="btn-group btn-group-sm">
@@ -889,6 +936,8 @@
       </td>
     </tr>
   </template>
+
+
 
   <template id="tplPendingRow">
     <tr>
@@ -929,17 +978,27 @@
   <template id="tplCreateRow">
     <div class="border rounded p-2">
       <div class="row g-2 align-items-end">
-        <div class="col-md-4">
+        <div class="col-md-3">
           <label class="form-label">Item Name</label>
           <input class="form-control cr-name" required>
         </div>
         <div class="col-md-3">
+          <label class="form-label">Category</label>
+          <select class="form-select cr-cat">
+            <option value="" selected disabled>— Select Category —</option>
+          </select>
+        </div>
+        <div class="col-md-2">
           <label class="form-label">UoM</label>
           <select class="form-select cr-uom"></select>
         </div>
-        <div class="col-md-3">
+        <div class="col-md-2">
           <label class="form-label">Location</label>
           <input class="form-control cr-loc" placeholder="Main WH">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Unit Price</label>
+          <input type="number" step="0.01" min="0" class="form-control cr-price" placeholder="0.00">
         </div>
         <div class="col-md-10">
           <label class="form-label">Description</label>
@@ -954,12 +1013,13 @@
     </div>
   </template>
 
-
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script>
     const $  = s => document.querySelector(s);
     const $$ = s => Array.from(document.querySelectorAll(s));
     const fmt = n => Number(n||0).toLocaleString();
+    const money = n => (n===null || n===undefined || n==='') ? '—'
+      : new Intl.NumberFormat('en-PH',{ style:'currency', currency:'PHP', maximumFractionDigits:2 }).format(Number(n));
     const when = iso => {
       if (!iso) return '—';
       const d = new Date(iso);
@@ -1061,8 +1121,14 @@
 
     const COLS_STOCK = [
       { key:'SKU', header:'SKU' },{ key:'Name', header:'Item Name' },{ key:'Description',header:'Description' },
-      { key:'UoM', header:'UoM' },{ key:'Qty', header:'On-hand' },{ key:'Location', header:'Location' },{ key:'Status', header:'Status' }
+      { key:'Category', header:'Category' },
+      { key:'UoM', header:'UoM' },
+      { key:'UnitPrice', header:'Unit Price', value: it => computeDisplayUnitPrice(it) },
+      { key:'Qty', header:'On-hand' },{ key:'Status', header:'Status' }
     ];
+
+
+
     const COLS_PENDING = [
       { key:'When', header:'When' },{ key:'Type', header:'Type' },{ key:'SKU', header:'SKU' },{ key:'Name', header:'Name' },
       { key:'Qty', header:'Qty' },{ key:'Delta', header:'Delta' },{ key:'UoM', header:'UoM' },{ key:'By', header:'Requested By' },
@@ -1090,7 +1156,7 @@
     // ===== Helpers to render organized details =====
     function activeNames(list){
       return (list || [])
-        .filter(r => String(r.Active || r.active || '').toLowerCase() !== 'no') // treat blank/Yes/true as active
+        .filter(r => String(r.Active || r.active || '').toLowerCase() !== 'no')
         .map(r => r.Name || r.name)
         .filter(Boolean);
     }
@@ -1106,17 +1172,53 @@
       const opts = activeNames(deptList).map(n => `<option value="${n}">${n}</option>`).join('');
       sel.innerHTML = keep + opts;
     }
+    function populateDeployLocationSelect(deployList){
+      const sel = document.getElementById('isDeployLoc'); if (!sel) return;
+      const keep = sel.querySelector('option[value=""]')?.outerHTML || '<option value="" disabled selected>— Select Deployment Location —</option>';
+      const opts = activeNames(deployList).map(n => `<option value="${n}">${n}</option>`).join('');
+      sel.innerHTML = keep + opts;
+    }
+
+    // NEW: Category (used by Modify form + Create rows + Stock filter)
+    function populateCategoryOptions(catList, selectEl){
+      if (!selectEl) return;
+      const keep = selectEl.querySelector('option[value=""]')?.outerHTML || '<option value="">All Categories</option>';
+      const opts = activeNames(catList).map(n => `<option value="${n}">${n}</option>`).join('');
+      selectEl.innerHTML = keep + opts;
+    }
+    function populateCategorySelects(catList){
+      populateCategoryOptions(catList, document.getElementById('msCategory'));
+      // For existing Create rows (if modal already open)
+      document.querySelectorAll('#csRows .cr-cat').forEach(el => populateCategoryOptions(catList, el));
+    }
+
 
     // ===== Create SKUs (multi) =====
     function crMakeRow(){
       const tpl = document.getElementById('tplCreateRow');
       const node = tpl.content.firstElementChild.cloneNode(true);
+
+      // default Location
+      const locInp = node.querySelector('.cr-loc');
+      if (locInp) locInp.value = 'Head Office';
+
+      // populate Category (from BOOT lookups)
+      const catSel = node.querySelector('.cr-cat');
+      if (catSel) {
+        const cats = (BOOT?.categories || BOOT?.lookups?.categories || []);
+        const keep = '<option value="" selected disabled>— Select Category —</option>';
+        const opts = activeNames(cats).map(n => `<option value="${n}">${n}</option>`).join('');
+        catSel.innerHTML = keep + opts;
+      }
+
       // populate UoM
-      const sel = node.querySelector('.cr-uom');
-      sel.innerHTML = '<option value="" disabled selected>— Select UoM —</option>'
+      const uomSel = node.querySelector('.cr-uom');
+      uomSel.innerHTML = '<option value="" disabled selected>— Select UoM —</option>'
         + UOMS.map(u => `<option value="${u}">${u}</option>`).join('');
+
       return node;
     }
+
     function crReset(n=1){
       const host = document.getElementById('csRows');
       if (!host) return;
@@ -1153,11 +1255,15 @@
 
       const items = Array.from(host?.children || []).map(card => ({
         sku: '',
-        name: (card.querySelector('.cr-name')?.value || '').trim(),
-        uom:  (card.querySelector('.cr-uom')?.value  || '').trim(),
-        desc: (card.querySelector('.cr-desc')?.value || '').trim(),
-        loc:  (card.querySelector('.cr-loc')?.value  || '').trim()
+        name:  (card.querySelector('.cr-name')?.value  || '').trim(),
+        category: (card.querySelector('.cr-cat')?.value || '').trim(),
+        uom:   (card.querySelector('.cr-uom')?.value   || '').trim(),
+        desc:  (card.querySelector('.cr-desc')?.value  || '').trim(),
+        loc:   (card.querySelector('.cr-loc')?.value   || '').trim(),
+        price: parseFloat(card.querySelector('.cr-price')?.value || '') || null
       })).filter(it => it.name);
+
+
 
       if (!items.length) {
         (window.toast ? toast({ message:'Add at least one item.', type:'warning' }) : alert('Add at least one item.'));
@@ -1259,60 +1365,6 @@
       return list + userNote;
     }
 
-    function formatNoteHTML(row){
-      const txt = String(mergedNote(row) || '').trim();
-      if (!txt) return '—';
-
-      // Split & de-duplicate "numbered item" lines (e.g., "1. 1 bag — Name (SKU)")
-      const lines = txt.split(/\n+/);
-      const cleaned = [];
-      const seenItems = new Set();
-
-      const isItemLine = (l) => /^\d+\.\s+.+\s+\([^)]+\)\s*$/i.test(l);
-      const keyItem = (l) =>
-        l.replace(/\s+/g, ' ')            // compress spaces
-        .replace(/^\d+\.\s*/, '')        // drop leading "N. "
-        .trim()
-        .toLowerCase();                  // key without the numbering
-
-      for (const l of lines) {
-        if (isItemLine(l)) {
-          const k = keyItem(l);
-          if (seenItems.has(k)) continue; // skip duplicate item line
-          seenItems.add(k);
-        }
-        cleaned.push(l);
-      }
-
-      // Now render: item lines as <ol>, other lines as small gray text
-      const itemLines = cleaned.filter(isItemLine);
-      const other     = cleaned.filter(l => !isItemLine(l));
-
-      let html = '';
-      if (itemLines.length) {
-        html += `<ol class="mb-1">${itemLines.map(l => `<li>${l.replace(/^\d+\.\s*/, '')}</li>`).join('')}</ol>`;
-      }
-      if (other.length) {
-        html += `<div class="small text-secondary">${other.join(' · ')}</div>`;
-      }
-      return html || '—';
-    }
-
-
-
-    function formatLedgerItemCell(row){
-      // Show "Receive — N item(s)" as title, then list all item names below (parsed from Note)
-      const title = row.Item || '—';
-      const names = [];
-      String(row.Note||'').split(/\n+/).forEach(l=>{
-        const m = l.match(/—\s*(.+?)\s*\(/); // from "qty uom — NAME (SKU)"
-        if(m && m[1]) names.push(m[1].trim());
-      });
-      const dedup = [...new Set(names)];
-      const below = dedup.length ? `<div class="small text-secondary">${dedup.join(', ')}</div>` : '';
-      return `<div>${title}</div>${below}`;
-    }
-
     function buildApproveSummaryHTML(row){
       const itemsHTML = buildDetailsHTML(row); // already includes items list + gray user comment
       return `
@@ -1382,11 +1434,13 @@
 
     function uniqueSorted(arr){ return Array.from(new Set((arr||[]).filter(Boolean))).sort(); }
     function populateStockFilters(items){
+      const cats = uniqueSorted(items.map(i => i.Category).filter(Boolean));
       const uoms = uniqueSorted(items.map(i => i.UoM));
-      const locs = uniqueSorted(items.map(i => i.Location));
-      const uSel = $('#stockFilterUom');  if(uSel){ uSel.innerHTML = '<option value="">All UoM</option>' + uoms.map(u=>`<option value="${u}">${u}</option>`).join(''); }
-      const lSel = $('#stockFilterLoc');  if(lSel){ lSel.innerHTML = '<option value="">All Locations</option>' + locs.map(l=>`<option value="${l}">${l}</option>`).join(''); }
+      const cSel = $('#stockFilterCat'); if (cSel){ cSel.innerHTML = '<option value="">All Categories</option>' + cats.map(c=>`<option value="${c}">${c}</option>`).join(''); }
+      const uSel = $('#stockFilterUom'); if (uSel){ uSel.innerHTML = '<option value="">All UoM</option>' + uoms.map(u=>`<option value="${u}">${u}</option>`).join(''); }
     }
+
+
     function populatePendingFilters(pending){
       const types = uniqueSorted(pending.map(p => p.Type));
       const bys   = uniqueSorted(pending.map(p => p.By));
@@ -1425,7 +1479,7 @@
       const modalEl = document.getElementById('modalSkuHistory');
       if(!item || !body || !modalEl) return;
 
-      // open immediately with a tiny loader
+      // open modal with a tiny loader immediately
       body.innerHTML = `
         <div class="p-3 border rounded-3 mb-3">
           <div class="d-flex justify-content-between align-items-start">
@@ -1450,59 +1504,82 @@
         </div>`;
       bootstrap.Modal.getOrCreateInstance(modalEl).show();
 
-      // --- helper: parse one note line like "10 pcs — Name (SKU)"
-      function parseLine(line){
-        const s = String(line||'').trim();
-        // allow leading "1. ", any dash variant (-, –, —), uom can have spaces (e.g., "sq ft")
+      // helper: try structured payload first, then parse note lines (e.g., "3 pcs — Name (SKU)")
+      function itemsFromRow(row){
+        // 1) structured
+        try{
+          const p = row?.PayloadJSON ? JSON.parse(row.PayloadJSON) : null;
+          if (p && Array.isArray(p.items) && p.items.length){
+            return p.items.map(it => ({
+              qty: it.qty ?? it.Qty ?? null,
+              uom: it.UoM ?? it.uom ?? row.UoM ?? '',
+              name: it.Name ?? it.name ?? row.Item ?? row.Name ?? '',
+              sku:  it.SKU  ?? it.sku  ?? row.SKU  ?? ''
+            }));
+          }
+        }catch(_){}
+        // 2) note lines
         const re = /^\s*(?:\d+\.\s*)?(-?\d+(?:\.\d+)?)\s+(.+?)\s*[—–-]\s*(.+?)\s*\(\s*([^)]+)\s*\)\s*$/;
-        const m = s.match(re);
-        if(!m) return null;
-        return {
-          qty: parseFloat(m[1]),
-          uom: m[2].trim(),
-          name: m[3].trim(),
-          sku: m[4].trim()
-        };
-      }
-
-      // --- build a per-SKU history from the full ledger snapshot
-      function buildHistoryFor(sku){
-        const out = [];
-        for (const l of (BOOT.ledger || [])) {
-          // 1) exact SKU row → direct hit
-          if (String(l.SKU) === String(sku)) {
-            out.push({
-              when: l.When, type: l.Type,
-              delta: Number(l.Delta||0),
-              uom: l.UoM || '',
-              status: l.Status, by: l.By || '',
-              note: mergedNote(l), id: l.ID
-            });
-            continue;
-          }
-          // 2) multi-item row → parse each line in Note and pick the one for this sku
-          if (!l.Note) continue;
-          const lines = String(l.Note).split(/\n+/);
-          for (const raw of lines) {
-            const p = parseLine(raw);
-            if (!p || String(p.sku) !== String(sku)) continue;
-            const signed = String(l.Type) === 'ISSUE' ? -Math.abs(p.qty) : Math.abs(p.qty);
-            out.push({
-              when: l.When, type: l.Type,
-              delta: signed,
-              uom: p.uom || l.UoM || '',
-              status: l.Status, by: l.By || '',
-              note: mergedNote(l, raw && raw.trim()), id: l.ID
-            });
-            break; // at most once per ledger row
-          }
+        const lines = String(row?.Note||'').split(/\n+/).map(s=>s.trim()).filter(Boolean);
+        const parsed = lines.map(l => {
+          const m = l.match(re); if(!m) return null;
+          return { qty:Number(m[1]), uom:m[2], name:m[3], sku:m[4] };
+        }).filter(Boolean);
+        if (parsed.length) return parsed;
+        // 3) single-row fallback
+        if (row && (row.SKU || row.Name || row.Item)) {
+          return [{ qty: row.Delta ?? row.Qty ?? null, uom: row.UoM || '', name: row.Item || row.Name || '', sku: row.SKU || '' }];
         }
-        // newest first
-        out.sort((a,b) => new Date(b.when) - new Date(a.when));
-        return out;
+        return [];
       }
 
-      const history = buildHistoryFor(sku);
+      function signDelta(rowType, rawQty){
+        if (rawQty == null || rawQty === '') return null;
+        const n = Number(rawQty);
+        if (Number.isNaN(n)) return null;
+        if (rowType === 'ISSUE')   return -Math.abs(n);
+        if (rowType === 'RECEIVE') return  Math.abs(n);
+        // for CREATE/MODIFY/RETIRE/etc. we don’t display a stock delta
+        return null;
+      }
+
+      function mergedNoteForRow(row, includeLine){
+        return mergedNote(row, includeLine && includeLine.trim());
+      }
+
+      // build per-SKU history
+      const out = [];
+      for (const r of (BOOT.ledger || [])) {
+        const list = itemsFromRow(r);
+        if (!list.length){
+          // still include direct matches when the row itself is for this SKU
+          if (String(r.SKU) === String(sku)) {
+            out.push({
+              when: r.When, type: r.Type, delta: Number(r.Delta ?? r.Qty ?? null),
+              uom: r.UoM || '', status: r.Status, by: r.By || '', note: mergedNoteForRow(r), id: r.ID
+            });
+          }
+          continue;
+        }
+        // pick only the line that matches this SKU (if present)
+        const hit = list.find(it => String(it.sku) === String(sku));
+        if (!hit) continue;
+
+        const delta = signDelta(r.Type, hit.qty);
+        out.push({
+          when: r.When,
+          type: r.Type,
+          delta,
+          uom: hit.uom || r.UoM || '',
+          status: r.Status,
+          by: r.By || '',
+          note: mergedNoteForRow(r, `${hit.qty ?? '—'} ${hit.uom || ''} — ${hit.name || ''} (${hit.sku || ''})`),
+          id: r.ID
+        });
+      }
+
+      // newest first
+      out.sort((a,b) => new Date(b.when) - new Date(a.when));
 
       // render table
       body.innerHTML = `
@@ -1525,16 +1602,22 @@
         </div>
 
         <div class="history-wrap">
-          ${history.length ? `
+          ${out.length ? `
             <table class="table sku-history-table align-middle table-hover table-striped">
               <thead>
                 <tr>
-                  <th>When</th><th>Type</th><th class="text-end">Δ Qty</th><th>UoM</th>
-                  <th>Status</th><th>By</th><th>Note</th><th class="text-muted">Ledger ID</th>
+                  <th>When</th>
+                  <th>Type</th>
+                  <th class="text-end">Δ Qty</th>
+                  <th>UoM</th>
+                  <th>Status</th>
+                  <th>By</th>
+                  <th>Note</th>
+                  <th class="text-muted">Ledger ID</th>
                 </tr>
               </thead>
               <tbody>
-                ${history.map(l => `
+                ${out.map(l => `
                   <tr>
                     <td class="when">${when(l.when)}</td>
                     <td class="type">${typeBadge(l.type)}</td>
@@ -1542,18 +1625,17 @@
                     <td class="uom">${l.uom || ''}</td>
                     <td class="status">${statusBadge(l.status)}</td>
                     <td class="by">${l.by || ''}</td>
-                    <td class="note">${l.note || ''}</td>
+                    <td class="note">${(l.note || '').replace(/\n/g,'<br>')}</td>
                     <td class="id">${l.id || ''}</td>
                   </tr>
                 `).join('')}
               </tbody>
-            </table>`
-            : `<div class="text-secondary small">No history yet for this SKU.</div>`}
+            </table>` : `<div class="text-secondary small">No history yet for this SKU.</div>`}
         </div>
       `;
 
-      // export CSV hook (reuses your downloadCSV)
-      const csvCols = [
+      // CSV export
+      const cols = [
         { header:'When',      value:r => r.when },
         { header:'Type',      value:r => r.type },
         { header:'Ledger ID', value:r => r.id },
@@ -1564,8 +1646,9 @@
         { header:'Note',      value:r => r.note }
       ];
       const btn = document.getElementById('btnExportSkuHistory');
-      if (btn) btn.onclick = () => downloadCSV(`${item.SKU}-history.csv`, history, csvCols);
+      if (btn) btn.onclick = () => downloadCSV(`${item.SKU}-history.csv`, out, cols);
     }
+
 
 
     // ===== Loader util =====
@@ -1678,9 +1761,11 @@
           populateUomSelect(document.getElementById('csUom'), '');
           populateUomSelect(document.getElementById('msUom'), '');
 
-          // NEW: fill Business Unit + Department dropdowns for ISSUE
-          populateBusinessUnitSelect(payload.businessUnits || payload.lookups?.businessUnits || []);
-          populateDepartmentSelect(payload.departments   || payload.lookups?.departments   || []);
+          populateBusinessUnitSelect(payload.businessUnits        || payload.lookups?.businessUnits        || []);
+          populateDepartmentSelect  (payload.departments          || payload.lookups?.departments          || []);
+          populateDeployLocationSelect(payload.deploymentLocations || payload.lookups?.deploymentLocations || []);
+          populateCategorySelects(payload.categories || payload.lookups?.categories || []);
+
 
 
           // Populate filter dropdowns
@@ -1798,17 +1883,19 @@
       const tb = $('#tblStock tbody'); tb.innerHTML='';
 
       const fStatus = $('#stockFilterStatus')?.value || '';
+      const fCat    = $('#stockFilterCat')?.value || '';
       const fUom    = $('#stockFilterUom')?.value || '';
-      const fLoc    = $('#stockFilterLoc')?.value || '';
 
       const filtered = (items||[]).filter(it => {
-        const hay = `${it.SKU} ${it.Name} ${it.Description} ${it.Location} ${it.Status}`.toLowerCase();
+        const hay = `${it.SKU} ${it.Name} ${it.Description} ${it.Category||''} ${it.Status}`.toLowerCase();
         if (q && !hay.includes(q)) return false;
         if (fStatus && String(it.Status) !== fStatus) return false;
+        if (fCat && String(it.Category || '') !== fCat) return false;
         if (fUom && String(it.UoM) !== fUom) return false;
-        if (fLoc && String(it.Location) !== fLoc) return false;
         return true;
       });
+
+
       LAST.stock = filtered;
 
       const pg = getPage(filtered, PAGE.stock, PAGE_SIZE);
@@ -1825,11 +1912,11 @@
 
         const nameEl = frag.querySelector('.item-name');
         nameEl.textContent = it.Name;
-        nameEl.addEventListener('click', ()=> openItemDetails(it));
 
         frag.querySelector('.uom').textContent = it.UoM || '';
+        frag.querySelector('.price').textContent = money(computeDisplayUnitPrice(it));
         frag.querySelector('.qty').textContent = fmt(it.Qty || 0);
-        frag.querySelector('.loc').textContent = it.Location || '';
+        frag.querySelector('.cat').textContent = it.Category || '';
         const statusHtml = it.Status === 'Active'
           ? '<span class="badge text-bg-success">Active</span>'
           : (it.Status === 'On Hold'
@@ -1851,7 +1938,22 @@
             $('#msUom').value  = it.UoM || '';
             $('#msLoc').value  = it.Location || '';
             $('#msStatus').value = it.Status || 'Active';
+            $('#msPrice').value = computeDisplayUnitPrice(it) ?? '';
+
+            // Category (ensure options exist)
+            const catSel = document.getElementById('msCategory');
+            if (catSel && catSel.options.length <= 1) {
+              populateCategorySelects(BOOT?.categories || BOOT?.lookups?.categories || []);
+            }
+            if (catSel) catSel.value = it.Category || '';
+
+            const btnPH = document.getElementById('btnOpenPriceHistory');
+            if (btnPH){
+              btnPH.onclick = () => openPriceHistory(it.SKU);
+            }
           });
+
+
           const btnRet = frag.querySelector('.btn-retire');
           btnRet.disabled = (Number(it.Qty) > 0) || it.Status !== 'Active';
           btnRet.addEventListener('click', ()=>{
@@ -2013,33 +2115,6 @@
       }
     });
 
-    document.getElementById('formRequest')?.addEventListener('submit', e=>{
-      e.preventDefault();
-      const sku = $('#riSku').value.trim();
-      const qty = Number($('#riQty').value);
-      const reason = $('#riReason').value.trim();
-      if (!sku || !(qty > 0)) { toast('Please choose a SKU and quantity.','danger'); return; }
-
-      const emp  = (BOOT.user?.name || BOOT.user?.email || '').trim();
-      const dept = (BOOT.user?.department || '').trim();
-
-      const btn = e.submitter;
-      setLoading(btn, true, 'Submitting...');
-      google.script.run
-        .withSuccessHandler(()=>{
-          setLoading(btn, false);
-          toast('Request submitted for approval','success');
-          e.target.reset();
-          bootstrap.Modal.getOrCreateInstance('#modalRequestItem').hide();
-          loadApp({ silent:true });
-        })
-        .withFailureHandler(err=>{
-          setLoading(btn, false);
-          toast(err.message,'danger');
-        })
-        .actionIssue(sku, qty, emp, dept, reason);
-    });
-
 
   function renderUsersPending(users){
     const tb = document.querySelector('#tblUsersPending tbody');
@@ -2093,65 +2168,246 @@
   // Merge all note sources (primary Note, Approve/Action comment fields, and payload.approval.comment)
   function mergedNote(rec, extraLine){
     const primary = String(rec?.Note || '').trim();
-    const out = primary ? primary.split(/\n+/) : [];
+    const base = primary ? primary.split(/\n+/) : [];
 
-    // Helpers to detect/normalize item lines like: "1. 1 bag — NAME (SKU)"
-    const isItemLine = l => /^\s*\d+\.\s+.+\([^)]+\)\s*$/i.test(l);
-    const itemKey = l => String(l)
-      .replace(/^\s*\d+\.\s*/, '')   // drop "N. "
-      .replace(/\s+/g, ' ')          // compress spaces
-      .trim()
-      .toLowerCase();
+    const isItemLine = l => /^\s*\d+?\.\s*.+\([^)]+\)\s*$/i.test(String(l||''));
+    const keyItem = l => String(l).replace(/^\s*\d+?\.\s*/, '').replace(/\s+/g,' ').trim().toLowerCase();
 
-    // Build a set of item-keys already present in the primary note
-    const existingItemKeys = new Set(
-      (out.filter(isItemLine)).map(itemKey)
-    );
+    const out = [...base];
 
-    // Conditionally add extraLine
-    if (extraLine && String(extraLine).trim()) {
+    // Optional extra single line (e.g., parsed per-item from a multi-row)
+    if (extraLine && String(extraLine).trim()){
       const s = String(extraLine).trim();
       if (isItemLine(s)) {
-        const k = itemKey(s);
-        if (!existingItemKeys.has(k)) {
-          out.push(s);
-          existingItemKeys.add(k);
-        }
-      } else {
-        // plain text line: only add if not already contained (case-insensitive)
-        const lower = s.toLowerCase();
-        if (!primary.toLowerCase().includes(lower)) out.push(s);
+        const k = keyItem(s);
+        if (!out.some(x => isItemLine(x) && keyItem(x) === k)) out.push(s);
+      } else if (!primary.toLowerCase().includes(s.toLowerCase())) {
+        out.push(s);
       }
     }
 
-    // Common server-side fields to merge (skip if already present)
-    const extras = [
-      rec?.ApproveComment,
-      rec?.ApproverComment,
-      rec?.ApproverNote,
-      rec?.ActionNote,
-      rec?.ReviewNote
-    ];
-    extras.forEach(v => {
-      const s = String(v || '').trim();
+    // Common server-sent comment fields to fold in
+    [
+      rec?.ApproveComment, rec?.ApproverComment, rec?.ApproverNote,
+      rec?.ActionNote,     rec?.ReviewNote
+    ].forEach(v=>{
+      const s = String(v||'').trim();
       if (!s) return;
       if (!primary.toLowerCase().includes(s.toLowerCase())) out.push(s);
     });
 
-    // Global de-dup: item lines by itemKey; others by lowercased text
+    // Final de-dup (item lines by key; others by lower text)
     const seen = new Set();
-    const deduped = [];
-    for (const line of out) {
-      const key = isItemLine(line) ? 'item:' + itemKey(line) : 'txt:' + line.toLowerCase();
-      if (seen.has(key)) continue;
+    const final = [];
+    out.forEach(line=>{
+      const key = (isItemLine(line) ? 'item:' + keyItem(line) : 'txt:' + String(line).toLowerCase());
+      if (seen.has(key)) return;
       seen.add(key);
-      deduped.push(line);
-    }
+      final.push(line);
+    });
+    return final.join('\n');
+  }
 
-    return deduped.join('\n');
+  function _namesFromSkus(skuList){
+    if (!Array.isArray(skuList) || !skuList.length) return [];
+    const bySku = (typeof BOOT === 'object' && Array.isArray(BOOT?.items))
+      ? new Map(BOOT.items.map(x => [String(x.SKU), x.Name || '']))
+      : new Map();
+    return skuList.map(s => {
+      const sku = String(s).trim();
+      const name = bySku.get(sku) || '';
+      return { qty: null, uom: '', name, sku };
+    }).filter(it => it.sku); // keep only valid SKU entries
   }
 
 
+  // 2) Robust item extractor (PayloadJSON → Note lines → single)
+  function _itemsFromRow(row){
+    // Prefer structured payload first
+    try{
+      const p = row && row.PayloadJSON ? JSON.parse(row.PayloadJSON) : null;
+      if (p && Array.isArray(p.items) && p.items.length){
+        // CREATE: often only SKUs (no qty/uom)
+        if (row?.Type === 'CREATE_SKU') {
+          let items = p.items.map(it => ({
+            qty: null,
+            uom: '',
+            name: it.Name ?? it.name ?? '',
+            sku:  it.SKU  ?? it.sku  ?? ''
+          }));
+
+          // If names are missing, fill via BOOT.items lookup
+          const haveAnyName = items.some(it => (it.name || '').trim());
+          if (!haveAnyName) {
+            const skus = items.map(it => it.sku).filter(Boolean);
+            const looked = _namesFromSkus(skus);
+            if (looked.length) return looked;
+          }
+          return items;
+        }
+
+        // Other actions
+        return p.items.map(it => ({
+          qty: it.qty ?? it.Qty ?? row.Delta ?? row.Qty ?? '',
+          uom: it.UoM ?? it.uom ?? row.UoM ?? '',
+          name: it.Name ?? it.name ?? row.Item ?? row.Name ?? '',
+          sku:  it.SKU  ?? it.sku  ?? row.SKU  ?? ''
+        }));
+      }
+    }catch(_){}
+
+    // ==== CREATE fallback (no/empty PayloadJSON.items) ====
+    if (row?.Type === 'CREATE_SKU') {
+      const skus = new Set();
+
+      // A) row.SKU as CSV (e.g., "YDC-PROC-0059, YDC-PROC-0060")
+      if (row?.SKU) {
+        String(row.SKU).split(/\s*,\s*/).forEach(s => { if (s) skus.add(s); });
+      }
+
+      // B) From Note summary: "Create SKU — 2 item(s) (YDC-..., YDC-...)"
+      if (row?.Note) {
+        const m = String(row.Note).match(/create\s*sku.*\(([^)]+)\)/i);
+        if (m && m[1]) {
+          m[1].split(/\s*,\s*/).forEach(s => { if (s) skus.add(s.trim()); });
+        }
+      }
+
+      // C) Last resort: parse full note for parenthetical SKU-like tokens
+      if (!skus.size && row?.Note) {
+        const paren = String(row.Note).match(/\(([^)]+)\)/);
+        if (paren && paren[1]) {
+          paren[1].split(/\s*,\s*/).forEach(s => { if (s) skus.add(s.trim()); });
+        }
+      }
+
+      const items = _namesFromSkus([...skus]);
+      if (items.length) return items;
+      // If still nothing, fall through to generic fallbacks
+    }
+
+    // Generic parser from Note lines like "3 pcs — Name (SKU)"
+    const parseLine = (line)=>{
+      const s = String(line||'').trim();
+      if (/^create\s+sku\b/i.test(s)) return null; // ignore CREATE summary lines
+      const re = /^\s*(?:\d+\.\s*)?(-?\d+(?:\.\d+)?)\s+(.+?)\s*[—–-]\s*(.+?)\s*\(\s*([^)]+)\s*\)\s*$/;
+      const m = s.match(re);
+      if(!m) return null;
+      return { qty: m[1], uom: m[2], name: m[3], sku: m[4] };
+    };
+    const fromNote = String(row?.Note||'').split(/\n+/).map(parseLine).filter(Boolean);
+    if (fromNote.length) return fromNote;
+
+    // Single-record fallback
+    if (row && (row.SKU || row.Name || row.Item)) {
+      return [{
+        qty: row.Delta ?? row.Qty ?? '',
+        uom: row.UoM ?? '',
+        name: row.Item || row.Name || '',
+        sku:  row.SKU  || ''
+      }];
+    }
+    return [];
+  }
+
+
+  // 3) Item-cell HTML (uniform like Receive)
+  function buildLedgerItemCell(row){
+    const items = _itemsFromRow(row);
+
+    const friendly = (()=>{
+      const m = { CREATE_SKU:'Create SKU', MODIFY_SKU:'Modify Item', RETIRE_SKU:'Retire SKU', RECEIVE:'Receive (Inbound)', ISSUE:'Issue (Outbound)' };
+      return m[row?.Type] || String(row?.Type||'');
+    })();
+
+    // Title: prefer row.Item; else "<Type> — N item(s)"
+    const title = row?.Item && !/^Batch of \d+ items$/i.test(String(row.Item))
+      ? row.Item
+      : `${friendly}${items.length ? ` — ${items.length} item(s)` : ''}`;
+
+    // Names for the gray subline
+    let names = [...new Set(
+      items.map(it => (it.name || '').trim()).filter(Boolean)
+    )];
+
+    // ✅ Only for CREATE, drop accidental "Create SKU — ..." as a name and de-dupe with title
+    if (row?.Type === 'CREATE_SKU') {
+      names = names
+        .filter(n => !/^create\s+sku\b/i.test(n))
+        .filter(n => n.toLowerCase() !== String(title).toLowerCase());
+    }
+
+    const below = names.length ? `<div class="small text-secondary">${names.join(', ')}</div>` : '';
+    return `<div>${title || '—'}</div>${below}`;
+  }
+
+
+
+  // 4) Note-cell HTML (ordered item lines + gray meta), consistent for all actions
+  function buildLedgerNoteCell(row){
+    const items = _itemsFromRow(row);
+
+    // CREATE_SKU: list as "Name (SKU)" (no qty/uom), ignore summary lines
+    if (row?.Type === 'CREATE_SKU') {
+      const lines = items
+        .map(it => {
+          const name = (it.name || '').trim();
+          const sku  = (it.sku  || '').trim();
+          if (!name && !sku) return null;
+          return `${name || '—'}${sku ? ` (${sku})` : ''}`;
+        })
+        .filter(Boolean);
+
+      // Pull non-item meta from merged notes, skipping summary lines
+      const meta = String(mergedNote(row) || '')
+        .split(/\n+/)
+        .filter(l => l && !/^create\s+sku\b/i.test(l));
+
+      let html = '';
+      if (lines.length){
+        html += `<ol class="mb-1">${lines.map(l => `<li>${l}</li>`).join('')}</ol>`;
+      }
+      if (meta.length){
+        html += `<div class="small text-secondary">${meta.join(' · ')}</div>`;
+      }
+      return html || '—';
+    }
+
+    // ---- default path (Receive/Issue/etc.): keep your existing behavior ----
+    const itemLines = items.map(it => {
+      const qty = (it.qty === '' || it.qty === null || it.qty === undefined) ? '—' : it.qty;
+      const uom = it.uom || '';
+      const nm  = it.name || '—';
+      const sk  = it.sku  || '—';
+      return `${qty} ${uom} — ${nm} (${sk})`;
+    });
+
+    const txt = String(mergedNote(row) || '').trim();
+    const rawLines = txt ? txt.split(/\n+/) : [];
+    const isItemLine = (l)=> /^\s*\d+?\.\s*.+\([^)]+\)\s*$/i.test(l) || /^\s*-?\d+(?:\.\d+)?\s+.+—.+\([^)]+\)\s*$/i.test(l);
+    const itemKey = (l)=> String(l).replace(/^\s*\d+?\.\s*/, '').replace(/\s+/g,' ').trim().toLowerCase();
+
+    const keepOther = [];
+    const seenItem = new Set(itemLines.map(itemKey));
+    for (const l of rawLines){
+      if (/^create\s+sku\b/i.test(l)) continue;  // never treat summary as item/meta elsewhere
+      if (isItemLine(l)) {
+        const k = itemKey(l);
+        if (!seenItem.has(k)) itemLines.push(l.replace(/^\s*\d+?\.\s*/, ''));
+        continue;
+      }
+      keepOther.push(l);
+    }
+
+    let html = '';
+    if (itemLines.length){
+      html += `<ol class="mb-1">${itemLines.map(l => `<li>${l.replace(/^\s*\d+?\.\s*/, '')}</li>`).join('')}</ol>`;
+    }
+    if (keepOther.length){
+      html += `<div class="small text-secondary">${keepOther.join(' · ')}</div>`;
+    }
+    return html || '—';
+  }
 
 
   function renderLedger(list){
@@ -2196,13 +2452,14 @@
       frag.querySelector('.id').textContent     = l.ID;
       frag.querySelector('.when').textContent   = when(l.When);
       frag.querySelector('.type').innerHTML     = typeBadge(l.Type);
-      frag.querySelector('.sku').innerHTML  = formatSkuChips(l.SKU);
-      frag.querySelector('.name').innerHTML = formatLedgerItemCell(l);
+      frag.querySelector('.sku').innerHTML      = formatSkuChips(l.SKU);
+      // 🔁 Uniform cells for ALL actions (copying Receive format)
+      frag.querySelector('.name').innerHTML     = buildLedgerItemCell(l);
       frag.querySelector('.delta').innerHTML    = qtyBadge(l.Delta);
       frag.querySelector('.uom').textContent    = l.UoM || '';
       frag.querySelector('.status').innerHTML   = statusBadge(l.Status);
       frag.querySelector('.by').textContent     = l.By || '';
-      frag.querySelector('.note').innerHTML = formatNoteHTML(l);
+      frag.querySelector('.note').innerHTML     = buildLedgerNoteCell(l);
 
       tb.appendChild(frag);
       requestAnimationFrame(function(){ row.classList.add('show'); });
@@ -2397,6 +2654,9 @@
                 <dt class="col-sm-4 text-secondary">Description</dt>
                 <dd class="col-sm-8">${it.Description || '—'}</dd>
 
+                <dt class="col-sm-4 text-secondary">Category</dt>
+                <dd class="col-sm-8">${it.Category || '—'}</dd>
+
                 <dt class="col-sm-4 text-secondary">Location</dt>
                 <dd class="col-sm-8">${it.Location || '—'}</dd>
               </dl>
@@ -2404,16 +2664,22 @@
 
             <div class="col-md-5">
               <div class="row g-2">
-                <div class="col-6">
+                <div class="col-4">
                   <div class="border rounded-3 p-2 text-center">
                     <div class="text-secondary small">On-hand</div>
-                    <div class="fs-4 fw-bold">${fmt(it.Qty || 0)}</div>
+                    <div class="fs-5 fw-bold">${fmt(it.Qty || 0)}</div>
                   </div>
                 </div>
-                <div class="col-6">
+                <div class="col-4">
                   <div class="border rounded-3 p-2 text-center">
                     <div class="text-secondary small">UoM</div>
-                    <div class="fs-4 fw-bold">${it.UoM || '—'}</div>
+                    <div class="fs-5 fw-bold">${it.UoM || '—'}</div>
+                  </div>
+                </div>
+                <div class="col-4">
+                  <div class="border rounded-3 p-2 text-center">
+                    <div class="text-secondary small">Unit Price</div>
+                    <div class="fs-5 fw-bold">${money(computeDisplayUnitPrice(it))}</div>
                   </div>
                 </div>
               </div>
@@ -2428,14 +2694,16 @@
       $('#pendingSearch')?.addEventListener('input', ()=>{ PAGE.pending=1; renderPending(BOOT.pending); });
       $('#ledgerSearch') ?.addEventListener('input', ()=>{ PAGE.ledger=1;  renderLedger(BOOT.ledger); });
 
-      ['stockFilterStatus','stockFilterUom','stockFilterLoc'].forEach(id=>{
+      ['stockFilterStatus','stockFilterCat','stockFilterUom'].forEach(id=>{
         document.getElementById(id)?.addEventListener('change', ()=>{ PAGE.stock=1; renderItems(BOOT.items); });
       });
       $('#stockFilterClear')?.addEventListener('click', ()=>{
         $('#stockSearch').value='';
-        ['stockFilterStatus','stockFilterUom','stockFilterLoc'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+        ['stockFilterStatus','stockFilterCat','stockFilterUom'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
         PAGE.stock=1; renderItems(BOOT.items);
       });
+
+
 
       ['pendFilterType','pendFilterBy'].forEach(id=>{
         document.getElementById(id)?.addEventListener('change', ()=>{ PAGE.pending=1; renderPending(BOOT.pending); });
@@ -2471,6 +2739,48 @@
     }
 
     // -------- Helpers --------
+    function openPriceHistory(sku){
+      const it = (BOOT.items||[]).find(x => String(x.SKU)===String(sku));
+      const body = document.getElementById('priceHistoryBody');
+      const mEl  = document.getElementById('modalPriceHistory');
+      if (!it || !body || !mEl){ return; }
+
+      const rows = Array.isArray(it.PriceHistory) ? it.PriceHistory : [];
+      if (!rows.length){
+        body.innerHTML = `<div class="text-secondary">No price history for <b>${sku}</b>.</div>`;
+      }else{
+        const html = `
+          <div class="mb-2"><b>${sku}</b> — ${it.Name || ''}</div>
+          <table class="table table-sm align-middle mb-0">
+            <thead><tr><th>When</th><th>By</th><th class="text-end">Price</th></tr></thead>
+            <tbody>
+              ${rows
+                .sort((a,b)=> new Date(b.at||0) - new Date(a.at||0))
+                .map(r=>`<tr><td>${when(r.at)}</td><td>${r.by||'—'}</td><td class="text-end">${money(r.price)}</td></tr>`).join('')}
+            </tbody>
+          </table>`;
+        body.innerHTML = html;
+      }
+      bootstrap.Modal.getOrCreateInstance(mEl).show();
+    }
+
+    function computeDisplayUnitPrice(it){
+      // Accept any of the following shapes (we’ll wire real data in backend):
+      // it.UnitPrice: number
+      // it.Price: number
+      // it.PriceHistory: [{price:number, at?:iso, by?:string}, ...]
+      if (Array.isArray(it.PriceHistory) && it.PriceHistory.length){
+        const nums = it.PriceHistory.map(p => Number(p.price)).filter(v => !Number.isNaN(v));
+        if (!nums.length) return null;
+        const unique = Array.from(new Set(nums.map(v=>v.toFixed(2)))).map(s=>Number(s));
+        if (unique.length === 1) return unique[0];
+        const avg = nums.reduce((a,b)=>a+b,0) / nums.length;
+        return Number(avg.toFixed(2));
+      }
+      const p = (it.UnitPrice ?? it.Price);
+      return (p==='' || p==null) ? null : Number(p);
+    }
+
     function lookupSku(sku){
       sku = (sku||'').trim();
       return (BOOT.items||[]).find(x => String(x.SKU) === String(sku));
@@ -2685,45 +2995,6 @@
       $('#skuHistoryBody').innerHTML = head + body + tail;
     }
 
-    function wireRequestSearch(){
-      const el = document.getElementById('riSearch');
-      if (!el) return;
-
-      const resolveSku = (txt) => {
-        const v = String(txt || '').trim();
-        if (!v) return null;
-        // Prefer pattern "... — SKU"
-        const m = v.match(/—\s*([A-Za-z0-9._-]+)\s*$/);
-        if (m) return m[1];
-        // Fallbacks: exact SKU, exact Name, partial Name
-        const n = v.toLowerCase();
-        const items = BOOT.items || [];
-        const bySkuExact = items.find(x => String(x.SKU).toLowerCase() === n);
-        if (bySkuExact) return bySkuExact.SKU;
-        const byNameExact = items.find(x => String(x.Name).toLowerCase() === n);
-        if (byNameExact) return byNameExact.SKU;
-        const byNamePartial = items.find(x => String(x.Name).toLowerCase().includes(n));
-        if (byNamePartial) return byNamePartial.SKU;
-        return null;
-      };
-
-      const fillFromSku = (sku) => {
-        const skuInput = document.getElementById('riSku');
-        if (!skuInput) return;
-        skuInput.value = sku;
-        // Trigger the existing autofill to populate name/desc/uom/cur
-        skuInput.dispatchEvent(new Event('input'));
-      };
-
-      const onPick = () => {
-        const sku = resolveSku(el.value);
-        if (sku) fillFromSku(sku);
-        else toast('Item not found. Try another name/keyword.','warning');
-      };
-
-      el.addEventListener('change', onPick);
-      el.addEventListener('blur', onPick);
-    }
 
     // Map to a friendly type label (client-side)
     function friendlyTypeTxt(t){
@@ -2897,8 +3168,12 @@
         desc: $('#msDesc').value.trim(),
         uom:  $('#msUom').value.trim(),
         loc:  $('#msLoc').value.trim(),
-        status: $('#msStatus').value.trim() // NEW
+        category: $('#msCategory').value.trim() || '',
+        status: $('#msStatus').value.trim(),
+        price: (()=>{ const v = $('#msPrice').value; return v==='' ? null : Number(v); })()
       };
+
+
       const btn = e.submitter;
       setLoading(btn, true, 'Submitting...');
       google.script.run
