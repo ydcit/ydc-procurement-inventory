@@ -70,6 +70,12 @@
     .toast-warning{ --t-bg:#332701; --t-border:#b38700; --t-fg:#fff7db; --t-accent:#fbbf24; }
     .toast-danger { --t-bg:#3a0a0a; --t-border:#a61b29; --t-fg:#ffe7ea; --t-accent:#f87171; }
 
+    /* Select Items modal: clickable rows + picked highlight */
+    #tblCatalog tbody tr.row-pickable { cursor: pointer; }
+    #tblCatalog tbody tr.row-picked   { background: rgba(13,110,253,.06); }
+    #tblCatalog tbody tr .form-control,
+    #tblCatalog tbody tr .form-check-input { cursor: auto; }
+
     /* --- Button loading helper --- */
     .btn-loading{ pointer-events:none; opacity:.85 }
     .btn-loading .spinner-border{ margin-right:.5rem }
@@ -155,6 +161,7 @@
       <div class="ms-auto d-flex align-items-center gap-2">
         <span id="dbChip" class="badge pill bg-secondary-subtle text-dark d-none" title="Connected Spreadsheet"></span>
         <span id="whoami" class="badge pill bg-secondary-subtle text-dark d-none"></span>
+        <span id="syncChip" class="badge pill bg-secondary-subtle text-dark d-none" title="Last synced at"></span>
 
         <!-- Tools (controller only) -->
         <div class="dropdown d-none" id="toolsMenu">
@@ -292,21 +299,21 @@
               </button>
 
               <!-- CONTROLLER/MANAGER -->
+              <button id="btnOpenCreate" class="btn btn-success btn-rounded" data-bs-toggle="modal" data-bs-target="#modalCreateSku">
+                <i class="fa-solid fa-plus me-2"></i>Create SKU
+              </button>
               <button id="btnOpenReceive" class="btn btn-primary btn-rounded" data-bs-toggle="modal" data-bs-target="#modalReceive">
                 <i class="fa-solid fa-inbox me-2"></i>Item Inbound / Receiving
               </button>
               <button id="btnOpenIssue" class="btn btn-warning btn-rounded" data-bs-toggle="modal" data-bs-target="#modalIssue">
                 <i class="fa-solid fa-truck-arrow-right me-2"></i>Item Outbound / Issuing
               </button>
-              <button id="btnOpenCreate" class="btn btn-success btn-rounded" data-bs-toggle="modal" data-bs-target="#modalCreateSku">
-                <i class="fa-solid fa-plus me-2"></i>Create SKU
-              </button>
-              <button id="btnOpenModify" class="btn btn-light-alt btn-rounded" data-bs-toggle="modal" data-bs-target="#modalModifySku">
+              <!-- <button id="btnOpenModify" class="btn btn-light-alt btn-rounded" data-bs-toggle="modal" data-bs-target="#modalModifySku">
                 <i class="fa-solid fa-pen-to-square me-2"></i>Modify Item
-              </button>
-              <button id="btnOpenRetire" class="btn btn-outline-danger btn-rounded" data-bs-toggle="modal" data-bs-target="#modalRetireSku">
+              </button> -->
+              <!-- <button id="btnOpenRetire" class="btn btn-outline-danger btn-rounded" data-bs-toggle="modal" data-bs-target="#modalRetireSku">
                 <i class="fa-solid fa-box-archive me-2"></i>Retire SKU
-              </button>
+              </button> -->
             </div>
           </div>
         </div>
@@ -318,7 +325,7 @@
           <div class="d-flex justify-content-between align-items-center mb-2">
             <h6 class="mb-0">Stock Overview</h6>
             <div class="filter-bar">
-              <input id="stockSearch" class="form-control form-control-sm search-input" placeholder="Search SKU / name / category" style="width:240px">
+              <input id="stockSearch" class="form-control form-control-sm search-input" placeholder="Search SKU / name / description / category" style="width:240px">
               <select id="stockFilterStatus" class="form-select form-select-sm" style="width:120px">
                 <option value="">All Status</option>
                 <option value="Active">Active</option>
@@ -338,7 +345,7 @@
           <div class="table-responsive">
             <table class="table align-middle table-hover" id="tblStock">
               <thead><tr>
-                <th>SKU</th><th>Item Name</th><th>UoM</th><th class="text-end">Unit Price</th><th class="text-end">On-hand</th><th>Category</th><th>Status</th><th class="text-end">Actions</th>
+                <th>SKU</th><th>Item Name</th><th>Description</th><th>UoM</th><th class="text-end">Unit Price</th><th class="text-end">On-hand</th><th>Category</th><th>Status</th><th class="text-end">Actions</th>
               </tr></thead>
               <tbody></tbody>
             </table>
@@ -347,11 +354,11 @@
         </div>
       </div>
 
-      <!-- My Requests (User) -->
+      <!-- Pending Requests (User) -->
       <div class="col-12" id="myRequestsWrap" style="display:none">
         <div class="card p-3">
           <div class="d-flex justify-content-between align-items-center mb-2">
-            <h6 class="mb-0">My Requests</h6>
+            <h6 class="mb-0">Pending Requests</h6>
             <div class="filter-bar">
               <input id="mineSearch" class="form-control form-control-sm search-input" placeholder="Search my requests" style="width:240px">
               <select id="mineFilterStatus" class="form-select form-select-sm" style="width:140px">
@@ -368,7 +375,11 @@
           <div class="table-responsive">
             <table class="table align-middle table-hover" id="tblMine">
               <thead><tr>
-                <th>When</th><th>Status</th><th>SKU</th><th>Item</th><th class="text-end">Qty</th><th>UoM</th><th class="text-muted">Record ID</th><th class="text-end">Actions</th>
+                <th>When</th><th>Status</th><th>SKU</th><th>Item</th>
+                <th class="text-end">Qty</th><th>UoM</th>
+                <th class="text-muted">Record ID</th>
+                <th style="width:160px" class="text-end">Current Approver</th>
+                <th class="text-end">Actions</th>
               </tr></thead>
               <tbody></tbody>
             </table>
@@ -376,6 +387,25 @@
           <div id="pagerMine" class="d-flex justify-content-between align-items-center mt-2 small"></div>
         </div>
       </div>
+
+      <!-- Approvers modal -->
+      <div class="modal fade" id="modalApprovers" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-md modal-dialog-centered">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title"><i class="fa-solid fa-users-gear me-2"></i>Approvers</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <div id="approversBody" class="small">No approver data.</div>
+            </div>
+            <div class="modal-footer">
+              <button class="btn btn-light-alt" data-bs-dismiss="modal">Close</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
 
       <!-- Approvals (Controller) -->
       <div class="col-12" id="approvalsWrap" style="display:none">
@@ -403,13 +433,18 @@
                   <select id="pendFilterBy" class="form-select form-select-sm" style="width:180px">
                     <option value="">All Requesters</option>
                   </select>
+                  <select id="pendFilterApprover" class="form-select form-select-sm" style="width:160px">
+                    <option value="">All Approvers</option>
+                    <option value="manager">Managers</option>
+                    <option value="controller">Controllers</option>
+                  </select>
                   <button id="pendFilterClear" class="btn btn-light-alt btn-sm">Clear</button>
                   <button id="btnDlPending" class="btn btn-light-alt btn-sm"><i class="fa-solid fa-download me-1"></i>Download CSV</button>
                 </div>
               </div>
               <div class="table-responsive">
                 <table class="table align-middle" id="tblPending">
-                  <thead><tr><th>When</th><th>Type</th><th>SKU</th><th>Details</th><th>Requested by</th><th class="text-end">Actions</th></tr></thead>
+                  <thead><tr><th>When</th><th>Type</th><th>SKU</th><th>Details</th><th>Requested by</th><th style="width:160px">Current Approver</th><th class="text-end">Actions</th></tr></thead>
                   <tbody></tbody>
                 </table>
               </div>
@@ -823,7 +858,7 @@
 
   <!-- Request Item (for Requestors) -->
   <div class="modal fade" id="modalRequest" tabindex="-1">
-    <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
       <form class="modal-content" id="formRequest">
         <div class="modal-header">
           <h5 class="modal-title"><i class="fa-solid fa-cart-shopping me-2"></i>Request Item</h5>
@@ -831,70 +866,121 @@
         </div>
 
         <div class="modal-body">
-          <div class="row g-3">
-            <!-- Search by item name; value format: "SKU — Name" -->
-            <div class="col-md-8">
-              <label class="form-label">Find Item (type name)</label>
-              <input id="rqPick" class="form-control" list="rqList" placeholder="Type item name then pick from list" autocomplete="off">
-              <datalist id="rqList"></datalist>
-              <div class="form-text">Start typing the item name and pick the suggestion.</div>
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <div class="small text-secondary">
+              Select up to <b>10</b> items. Only <b>Active</b> items are available.
             </div>
+            <button type="button" class="btn btn-sm btn-success" id="rqOpenCatalog">
+              <i class="fa-solid fa-plus me-1"></i>Select Items
+            </button>
+          </div>
 
-            <!-- Hidden SKU once selected -->
-            <input type="hidden" id="rqSku">
+          <!-- Cart / summary table -->
+          <div id="rqCartWrap" class="border rounded p-2">
+            <div class="table-responsive">
+              <table class="table table-sm align-middle mb-0" id="rqCartTable">
+                <thead>
+                  <tr>
+                    <th style="width:140px">SKU</th>
+                    <th>Item</th>
+                    <th>Item Description</th>
+                    <th style="width:90px">UoM</th>
+                    <th style="width:120px" class="text-end">On-hand</th>
+                    <th style="width:140px" class="text-end">Qty to Request</th>
+                    <th style="width:60px" class="text-end"></th>
+                  </tr>
+                </thead>
+                <tbody><!-- rows injected --></tbody>
+              </table>
+            </div>
+            <div class="small text-secondary mt-2" id="rqCartMeta">No items selected.</div>
+          </div>
 
-            <div class="col-md-4">
-              <label class="form-label">Qty to Request</label>
-              <input id="rqQty" type="number" min="1" class="form-control" required>
-            </div>
-
-            <div class="col-md-6">
-              <label class="form-label">Item Name</label>
-              <input id="rqName" class="form-control" disabled>
-            </div>
-            <div class="col-md-6">
-              <label class="form-label">Item Description</label>
-              <input id="rqDesc" class="form-control" disabled>
-            </div>
-
-            <div class="col-md-2">
-              <label class="form-label">UoM</label>
-              <input id="rqUom" class="form-control" disabled>
-            </div>
-            <div class="col-md-2">
-              <label class="form-label">On-hand</label>
-              <input id="rqCur" class="form-control" disabled>
-            </div>
-
-            <div class="col-12">
-              <label class="form-label">Reason / Purpose</label>
-              <textarea id="rqReason" class="form-control" rows="2" placeholder="Brief justification" required></textarea>
-            </div>
+          <div class="mt-3">
+            <label class="form-label">Reason / Purpose</label>
+            <textarea id="rqReason" class="form-control" rows="2" placeholder="Brief justification" required></textarea>
           </div>
         </div>
 
         <div class="modal-footer">
           <button class="btn btn-light-alt" type="button" data-bs-dismiss="modal">Cancel</button>
-          <button class="btn btn-primary" type="submit">
+          <button class="btn btn-primary" type="submit" id="rqSubmitBtn">
             <i class="fa-solid fa-paper-plane me-1"></i>Submit Request
           </button>
         </div>
       </form>
     </div>
   </div>
+
   
   <div class="modal fade" id="modalMyReq" tabindex="-1">
-  <div class="modal-dialog modal-md modal-dialog-centered">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title"><i class="fa-solid fa-circle-info me-2"></i>Request Details</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+    <div class="modal-dialog modal-md modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="fa-solid fa-circle-info me-2"></i>Request Details</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body"><div id="myReqSummary"></div></div>
+        <div class="modal-footer"><button class="btn btn-light-alt" data-bs-dismiss="modal">Close</button></div>
       </div>
-      <div class="modal-body"><div id="myReqSummary"></div></div>
-      <div class="modal-footer"><button class="btn btn-light-alt" data-bs-dismiss="modal">Close</button></div>
     </div>
   </div>
-</div>
+
+  <!-- Select Items (catalog picker for Request flow) -->
+  <div class="modal fade" id="modalSelectItems" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">
+            <i class="fa-solid fa-magnifying-glass me-2"></i>Select Items to Request
+          </h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+
+        <div class="modal-body">
+          <div class="d-flex flex-wrap gap-2 mb-2">
+            <input id="catSearch" class="form-control form-control-sm search-input" placeholder="Search SKU / name / description" style="width:280px">
+            <select id="catFilterCat" class="form-select form-select-sm" style="width:200px">
+              <option value="">All Categories</option>
+            </select>
+            <select id="catFilterUom" class="form-select form-select-sm" style="width:140px">
+              <option value="">All UoM</option>
+            </select>
+            <button id="catClear" class="btn btn-light-alt btn-sm">Clear</button>
+            <div class="ms-auto small text-secondary">
+              You can add up to <b>10</b> items in total.
+            </div>
+          </div>
+
+          <div class="table-responsive">
+            <table class="table align-middle table-hover" id="tblCatalog">
+              <thead>
+                <tr>
+                  <th style="width:40px"></th>
+                  <th>SKU</th>
+                  <th>Item Name</th>
+                  <th>Description</th>
+                  <th>Category</th>
+                  <th>UoM</th>
+                  <th class="text-end">Available</th>
+                  <th class="text-end" style="width:160px">Qty to Request</th>
+                </tr>
+              </thead>
+              <tbody><!-- rows injected --></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button class="btn btn-light-alt" type="button" data-bs-dismiss="modal">Cancel</button>
+          <button class="btn btn-primary" type="button" id="catAddSelected">
+            <i class="fa-solid fa-cart-plus me-1"></i>Add Selected Items
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
 
 <!-- Price Histotry -->
 
@@ -922,6 +1008,7 @@
     <tr>
       <td><span class="sku-link text-decoration-underline" style="cursor:pointer"></span></td>
       <td><span class="item-name"></span></td>
+      <td class="desc"></td>
       <td class="uom"></td>
       <td class="price text-end"></td>
       <td class="qty text-end"></td>
@@ -937,11 +1024,9 @@
     </tr>
   </template>
 
-
-
   <template id="tplPendingRow">
     <tr>
-      <td class="when"></td><td class="type"></td><td class="sku"></td><td class="details"></td><td class="by"></td>
+      <td class="when"></td><td class="type"></td><td class="sku"></td><td class="details"></td><td class="by"></td><td class="approver"></td>
       <td class="text-end">
         <div class="btn-group btn-group-sm">
           <button class="btn btn-success btn-approve" title="Approve"><i class="fa-solid fa-check"></i></button>
@@ -960,6 +1045,7 @@
       <td class="qty text-end"></td>
       <td class="uom"></td>
       <td class="recid text-muted"></td>
+      <td class="current-approver text-end"></td>
       <td class="text-end">
         <div class="btn-group btn-group-sm">
           <button class="btn btn-light-alt btn-view-req" title="View"><i class="fa-solid fa-eye"></i></button>
@@ -967,6 +1053,8 @@
       </td>
     </tr>
   </template>
+
+
 
   <template id="tplLedgerRow">
     <tr>
@@ -1132,6 +1220,7 @@
     const COLS_PENDING = [
       { key:'When', header:'When' },{ key:'Type', header:'Type' },{ key:'SKU', header:'SKU' },{ key:'Name', header:'Name' },
       { key:'Qty', header:'Qty' },{ key:'Delta', header:'Delta' },{ key:'UoM', header:'UoM' },{ key:'By', header:'Requested By' },
+      { key:'CurrentApprover', header:'Current Approver' },
       { key:'Status', header:'Status' },{ key:'Reason', header:'Reason' },{ key:'Note', header:'Note' },
       { key:'PendingID', header:'PendingID' },{ key:'LinkID', header:'LinkID' }
     ];
@@ -1442,10 +1531,24 @@
 
 
     function populatePendingFilters(pending){
-      const types = uniqueSorted(pending.map(p => p.Type));
-      const bys   = uniqueSorted(pending.map(p => p.By));
-      const tSel = $('#pendFilterType'); if(tSel){ tSel.innerHTML = '<option value="">All Types</option>' + types.map(t=>`<option value="${t}">${t}</option>`).join(''); }
-      const bSel = $('#pendFilterBy');   if(bSel){ bSel.innerHTML = '<option value="">All Requesters</option>' + bys.map(b=>`<option value="${b}">${b}</option>`).join(''); }
+      const types = uniqueSorted((pending||[]).map(p => p.Type));
+      const bys   = uniqueSorted((pending||[]).map(p => p.By));
+      const roles = Array.from(new Set((pending||[])
+                      .map(p => String(p.CurrentApproverRole||'').toLowerCase())
+                      .filter(Boolean))).sort();
+
+      const tSel = $('#pendFilterType');
+      if (tSel) tSel.innerHTML = '<option value="">All Types</option>' + types.map(t=>`<option value="${t}">${t}</option>`).join('');
+
+      const bSel = $('#pendFilterBy');
+      if (bSel) bSel.innerHTML = '<option value="">All Requesters</option>' + bys.map(b=>`<option value="${b}">${b}</option>`).join('');
+
+      const aSel = $('#pendFilterApprover');
+      if (aSel) {
+        const label = r => (r==='manager' ? 'Managers' : r==='controller' ? 'Controllers' : r);
+        const keep  = aSel.querySelector('option[value=""]')?.outerHTML || '<option value="">All Approvers</option>';
+        aSel.innerHTML = keep + roles.map(r => `<option value="${r}">${label(r)}</option>`).join('');
+      }
     }
     function populateLedgerFilters(ledger){
       const types = uniqueSorted(ledger.map(l => l.Type));
@@ -1504,21 +1607,62 @@
         </div>`;
       bootstrap.Modal.getOrCreateInstance(modalEl).show();
 
-      // helper: try structured payload first, then parse note lines (e.g., "3 pcs — Name (SKU)")
+      // helper: include CREATE_SKU robustly for every created SKU
       function itemsFromRow(row){
-        // 1) structured
+        // 1) structured payload first
         try{
           const p = row?.PayloadJSON ? JSON.parse(row.PayloadJSON) : null;
           if (p && Array.isArray(p.items) && p.items.length){
+            // Special case: CREATE_SKU often has items without qty/uom
+            if (row?.Type === 'CREATE_SKU'){
+              const items = p.items.map(it => ({
+                qty: null,
+                uom: '',
+                name: it.Name ?? it.name ?? '',
+                sku:  it.SKU  ?? it.sku  ?? ''
+              }));
+              // If names are missing, enrich via BOOT lookup
+              const haveAnyName = items.some(it => (it.name || '').trim());
+              if (!haveAnyName) {
+                const skus = items.map(it => it.sku).filter(Boolean);
+                const looked = _namesFromSkus(skus);
+                if (looked.length) return looked;
+              }
+              return items;
+            }
+            // Default mapping for non-CREATE rows
             return p.items.map(it => ({
-              qty: it.qty ?? it.Qty ?? null,
+              qty: it.qty ?? it.Qty ?? row.Delta ?? row.Qty ?? null,
               uom: it.UoM ?? it.uom ?? row.UoM ?? '',
               name: it.Name ?? it.name ?? row.Item ?? row.Name ?? '',
               sku:  it.SKU  ?? it.sku  ?? row.SKU  ?? ''
             }));
           }
         }catch(_){}
-        // 2) note lines
+
+        // 2) CREATE_SKU fallback when payload is empty / missing
+        if (row?.Type === 'CREATE_SKU'){
+          const skus = new Set();
+
+          // A) row.SKU may be a CSV list for batch create
+          if (row?.SKU) {
+            String(row.SKU).split(/\s*,\s*/).forEach(s => { if (s) skus.add(s.trim()); });
+          }
+
+          // B) Parse summary in Note: "... (SKU1, SKU2, ...)"
+          if (row?.Note) {
+            const m = String(row.Note).match(/\(([^)]+)\)/);
+            if (m && m[1]) {
+              m[1].split(/\s*,\s*/).forEach(s => { if (s) skus.add(s.trim()); });
+            }
+          }
+
+          const items = _namesFromSkus([...skus]); // -> [{name, sku}]
+          if (items.length) return items;
+          // If still nothing, fall through to generic paths below (very rare)
+        }
+
+        // 3) parse note lines like "3 pcs — Name (SKU)"
         const re = /^\s*(?:\d+\.\s*)?(-?\d+(?:\.\d+)?)\s+(.+?)\s*[—–-]\s*(.+?)\s*\(\s*([^)]+)\s*\)\s*$/;
         const lines = String(row?.Note||'').split(/\n+/).map(s=>s.trim()).filter(Boolean);
         const parsed = lines.map(l => {
@@ -1526,7 +1670,8 @@
           return { qty:Number(m[1]), uom:m[2], name:m[3], sku:m[4] };
         }).filter(Boolean);
         if (parsed.length) return parsed;
-        // 3) single-row fallback
+
+        // 4) single-row fallback
         if (row && (row.SKU || row.Name || row.Item)) {
           return [{ qty: row.Delta ?? row.Qty ?? null, uom: row.UoM || '', name: row.Item || row.Name || '', sku: row.SKU || '' }];
         }
@@ -1539,7 +1684,7 @@
         if (Number.isNaN(n)) return null;
         if (rowType === 'ISSUE')   return -Math.abs(n);
         if (rowType === 'RECEIVE') return  Math.abs(n);
-        // for CREATE/MODIFY/RETIRE/etc. we don’t display a stock delta
+        // CREATE/MODIFY/RETIRE/etc.: no stock delta
         return null;
       }
 
@@ -1566,6 +1711,11 @@
         if (!hit) continue;
 
         const delta = signDelta(r.Type, hit.qty);
+        // For CREATE_SKU, include a clearer per-line note "Name (SKU)"
+        const line = (r.Type === 'CREATE_SKU')
+          ? `${hit.name || ''} (${hit.sku || ''})`
+          : `${hit.qty ?? '—'} ${hit.uom || ''} — ${hit.name || ''} (${hit.sku || ''})`;
+
         out.push({
           when: r.When,
           type: r.Type,
@@ -1573,7 +1723,7 @@
           uom: hit.uom || r.UoM || '',
           status: r.Status,
           by: r.By || '',
-          note: mergedNoteForRow(r, `${hit.qty ?? '—'} ${hit.uom || ''} — ${hit.name || ''} (${hit.sku || ''})`),
+          note: mergedNoteForRow(r, line),
           id: r.ID
         });
       }
@@ -1649,8 +1799,6 @@
       if (btn) btn.onclick = () => downloadCSV(`${item.SKU}-history.csv`, out, cols);
     }
 
-
-
     // ===== Loader util =====
     const Loader = (() => {
       const el   = document.getElementById('appLoader');
@@ -1710,6 +1858,13 @@
             const chip = document.getElementById('dbChip');
             if (chip) { chip.classList.remove('d-none'); chip.textContent = payload.db.name; }
           }
+          // NEW: last sync chip
+          const syncChip = document.getElementById('syncChip');
+          if (syncChip && payload.serverNow) {
+            const t = new Date(payload.serverNow);
+            syncChip.classList.remove('d-none');
+            syncChip.textContent = `Synced ${isNaN(t) ? '' : t.toLocaleTimeString()}`;
+          }
 
           // Route: login vs app
           const st = payload.user?.status || 'Unknown';
@@ -1747,12 +1902,73 @@
             document.getElementById('tabUsers')?.classList.add('d-none');
           }
 
+          // Decide user mode FIRST so initial renders use correct filters
+          applyUserMode(payload);
+
           // Build UI (silent mode skips loader messages)
-          setMsg('Preparing dashboard…'); renderCounts(payload.counts);
+          // For requestors, compute KPIs by DISTINCT request (not items)
+          if (IS_USER) {
+            const myEmail = String(payload.user?.email || '').toLowerCase();
+
+            // Prefer backend-provided mine*; else filter globals by signed-in user
+            const mineP = Array.isArray(payload.minePending)
+              ? payload.minePending.filter(p => p.Type === 'ISSUE' && String(p.By||'').toLowerCase() === myEmail)
+              : (payload.pending || []).filter(p => p.Type === 'ISSUE' && String(p.By||'').toLowerCase() === myEmail);
+
+            const mineL = Array.isArray(payload.mineLedger)
+              ? payload.mineLedger.filter(l => l.Type === 'ISSUE' && String(l.By||'').toLowerCase() === myEmail)
+              : (payload.ledger  || []).filter(l => l.Type === 'ISSUE' && String(l.By||'').toLowerCase() === myEmail);
+
+            // Robust request key across Pending/Ledger
+            const reqKey = r => String(
+              r.PendingID ?? r.RecordID ?? r.LinkID ?? r.LinkId ?? r.ID ?? r.Id ?? ''
+            ).trim() || `${r.Type||'ISSUE'}|${r.When||''}|${r.By||''}`;
+
+            const now = new Date();
+            const cutoff = new Date(now.getTime() - 30*24*60*60*1000);
+
+            // 1) Open Requests = distinct Pending
+            const open = new Set(mineP.filter(p => p.Status === 'Pending').map(reqKey)).size;
+
+            // 2) Approved (30d) = distinct approved in ledger within 30 days
+            const approved30 = new Set(
+              mineL.filter(l => l.Status === 'Approved' && new Date(l.When) >= cutoff).map(reqKey)
+            ).size;
+
+            // 3) Declined (30d) = distinct declined (either in ledger or still in pending) within 30 days
+            const declined30 = new Set([
+              ...mineL.filter(l => l.Status === 'Declined' && new Date(l.When) >= cutoff).map(reqKey),
+              ...mineP.filter(p => p.Status === 'Declined' && new Date(p.When) >= cutoff).map(reqKey),
+            ]).size;
+
+            // 4) Total Requested = distinct requests across Pending + Ledger (all time)
+            const total = new Set([...mineP, ...mineL].map(reqKey)).size;
+
+            // Update tiles
+            animateNumber($('#kpiSkus'),    KPI_PREV.activeSkus, open);
+            animateNumber($('#kpiOnhand'),  KPI_PREV.onhand,     approved30);
+            animateNumber($('#kpiPending'), KPI_PREV.pending,    declined30);
+            animateNumber($('#kpiLedger'),  KPI_PREV.ledger,     total);
+
+            // Keep prevs in sync
+            KPI_PREV.activeSkus = open;
+            KPI_PREV.onhand     = approved30;
+            KPI_PREV.pending    = declined30;
+            KPI_PREV.ledger     = total;
+
+            // Persist for other views that use BOOT
+            BOOT.minePending = mineP;
+            BOOT.mineLedger  = mineL;
+          } else {
+            setMsg('Preparing dashboard…');
+            renderCounts(payload.counts);
+          }
+
           setMsg('Rendering stock…');    renderItems(payload.items);
           setMsg('Loading approvals…');  renderPending(payload.pending); renderUsersPending(payload.usersPending || []);
           setMsg('Building ledger…');    renderLedger(payload.ledger);
           setMsg('Final touches…');      fillSkuDatalist(payload.items);
+
           fillRequestDatalist(payload.items);
           wireRequestAutofill();
           fillItemNameDatalist(payload.items);
@@ -1761,27 +1977,24 @@
           populateUomSelect(document.getElementById('csUom'), '');
           populateUomSelect(document.getElementById('msUom'), '');
 
+          // lookups, filters, wiring...
           populateBusinessUnitSelect(payload.businessUnits        || payload.lookups?.businessUnits        || []);
           populateDepartmentSelect  (payload.departments          || payload.lookups?.departments          || []);
           populateDeployLocationSelect(payload.deploymentLocations || payload.lookups?.deploymentLocations || []);
           populateCategorySelects(payload.categories || payload.lookups?.categories || []);
 
-
-
-          // Populate filter dropdowns
           populateStockFilters(payload.items);
           populatePendingFilters(payload.pending);
           populateLedgerFilters(payload.ledger);
           fillRetireDatalist(payload.items);
 
-          // Wire interactions
           wireSearch();
           wireSkuAutofill();
           fillItemNameDatalist(payload.items);
           wireDownloads();
           setupReveals();
           enableRipples();
-          applyUserMode(payload);
+
 
           if (!silent) { requestAnimationFrame(() => setTimeout(() => { try { Loader.hide(); } catch(e) {} }, 120)); }
         })
@@ -1913,6 +2126,9 @@
         const nameEl = frag.querySelector('.item-name');
         nameEl.textContent = it.Name;
 
+        // NEW: description cell (prefer ItemDescription alias from backend)
+        frag.querySelector('.desc').textContent = it.ItemDescription || it.Description || '';
+
         frag.querySelector('.uom').textContent = it.UoM || '';
         frag.querySelector('.price').textContent = money(computeDisplayUnitPrice(it));
         frag.querySelector('.qty').textContent = fmt(it.Qty || 0);
@@ -1990,14 +2206,16 @@
       const q = ($('#pendingSearch').value||'').toLowerCase();
       const tb = $('#tblPending tbody'); tb.innerHTML='';
 
-      const fType = $('#pendFilterType')?.value || '';
-      const fBy   = $('#pendFilterBy')?.value || '';
+      const fType     = $('#pendFilterType')?.value || '';
+      const fBy       = $('#pendFilterBy')?.value || '';
+      const fApprover = $('#pendFilterApprover')?.value || '';
 
       const filtered = (list||[]).filter(p => {
-        const hay = `${p.Type} ${p.SKU||''} ${p.Name||''} ${p.By||''}`.toLowerCase();
+        const hay = `${p.Type} ${p.SKU||''} ${p.Name||''} ${p.By||''} ${p.CurrentApprover||''}`.toLowerCase();
         if (q && !hay.includes(q)) return false;
         if (fType && p.Type !== fType) return false;
         if (fBy   && p.By   !== fBy)   return false;
+        if (fApprover && String(p.CurrentApproverRole||'').toLowerCase() !== fApprover) return false;
         return true;
       });
       LAST.pending = filtered;
@@ -2013,9 +2231,9 @@
         frag.querySelector('.when').textContent    = when(p.When);
         frag.querySelector('.type').innerHTML      = typeBadge(p.Type);
         frag.querySelector('.sku').innerHTML       = formatSkuChips(p.SKU);
-        // Show full item breakdown parsed from PayloadJSON (plus reason/note)
         frag.querySelector('.details').innerHTML   = buildDetailsHTML(p);
         frag.querySelector('.by').textContent      = p.By || '';
+        frag.querySelector('.approver').textContent = p.CurrentApprover || '—';
 
         const btnApprove = frag.querySelector('.btn-approve');
         const btnDecline = frag.querySelector('.btn-decline');
@@ -2031,6 +2249,7 @@
 
       renderPager('pending', 'pagerPending', pg);
     }
+
 
 
     let confirmCtx = null; // { btn, id, rec, action: 'decline'|'void' }
@@ -2412,7 +2631,8 @@
 
   function renderLedger(list){
     // If requestor, restrict ledger to their own ISSUE requests
-    var isUser = (typeof IS_USER !== 'undefined' ? IS_USER : (BOOT && BOOT.user && BOOT.user.role === 'user'));
+    // Prefer BOOT.user.role (available on first load); fall back to IS_USER flag.
+    var isUser = ((BOOT && BOOT.user && BOOT.user.role === 'user') || IS_USER === true);
     if (isUser && BOOT && BOOT.user && BOOT.user.email) {
       var myEmail = String(BOOT.user.email || '').toLowerCase();
       list = (list || []).filter(function(l){
@@ -2484,37 +2704,100 @@
     }
 
     function openMyReqDetails(rec){
+      const roleNice = (r) => {
+        const v = String(r || '').toLowerCase();
+        if (v === 'manager')    return 'Managers';
+        if (v === 'controller') return 'Controllers';
+        return r || '—';
+      };
+      const currApprover = (rec.Status === 'Pending') ? roleNice(rec.NextRole) : '—';
+
+      // Build a compact bullet list of all requested items
+      const listHtml = (Array.isArray(rec.Items) && rec.Items.length)
+        ? `<ul class="mb-0">${rec.Items.map(it => `
+            <li>${(it.qty ?? '—')} ${it.uom || ''} — ${it.name || '—'} <span class="text-secondary">(${it.sku || '—'})</span></li>
+          `).join('')}</ul>`
+        : (rec.Item || rec.Name || '—');
+
+      // Optional: SKU list (CSV) if multiple
+      const skuCsv = (Array.isArray(rec.Items) && rec.Items.length)
+        ? rec.Items.map(it => it.sku).filter(Boolean).join(', ')
+        : (rec.SKU || '');
+
       const rows = [
         ['Status', rec.Status || '—'],
+        ['Current Approver', currApprover],
         ['When', when(rec.When)],
-        ['SKU', rec.SKU || '—'],
-        ['Item', rec.Item || rec.Name || '—'],
-        ['Qty',  rec.Qty ?? '—'],
-        ['UoM',  rec.UoM || '—'],
+        ['SKU(s)', skuCsv || '—'],
+        ['Item(s)', listHtml],
         ['Note', rec.Note || '—'],
         ['Reason', rec.Reason || '—'],
         ['Record ID', rec.RecordID || rec.ID || '—']
       ];
-      $('#myReqSummary').innerHTML = buildSummaryTable(rows);
+
+      // Allow HTML for the Item(s) cell
+      const htmlTable = `
+        <table class="table table-sm align-middle mb-0">
+          <tbody>
+            ${rows.map(([k,v])=>`
+              <tr>
+                <th class="text-secondary" style="width:180px">${k}</th>
+                <td>${v ?? '—'}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>`;
+
+      $('#myReqSummary').innerHTML = htmlTable;
       bootstrap.Modal.getOrCreateInstance('#modalMyReq').show();
     }
 
     function renderMine(minePending){
       // Only show ISSUE requests from the Pending sheet
       const rows = (minePending || [])
-        .filter(p => p.Type === 'ISSUE')
-        .map(p => ({
+      .filter(p => p.Type === 'ISSUE')
+      .map(p => {
+        const items = extractItemsFromPayload(p); // [{sku,name,qty,uom}, ...]
+
+        // Build a reliable label for the table cell:
+        // 1) If we have parsed items:
+        //    - 1 item  → show its name (or SKU if name missing)
+        //    - >1 items→ "FirstName + N more" (fallbacks to SKU if name missing)
+        // 2) Else fallback to p.Name, then SKU, then a generic "Batch of N items"
+        let itemLabel = '';
+        if (items && items.length) {
+          const first = items[0] || {};
+          const firstName = (first.name || '').trim();
+          const firstSku  = (first.sku  || '').trim();
+          if (items.length === 1) {
+            itemLabel = firstName || firstSku || (p.Name || '') || (p.SKU || '');
+          } else {
+            const head = firstName || firstSku || 'Item';
+            itemLabel = `${head} + ${items.length - 1} more`;
+          }
+        } else {
+          itemLabel = (p.Name || '').trim() || (p.SKU || '').trim();
+          if (!itemLabel) {
+            const countFromCsv = String(p.SKU || '').split(',').map(s => s.trim()).filter(Boolean).length;
+            if (countFromCsv > 1) itemLabel = `Batch of ${countFromCsv} items`;
+          }
+          if (!itemLabel) itemLabel = 'Batch of items';
+        }
+
+        return {
           When: p.When,
           Status: p.Status,
           SKU: p.SKU,
-          Item: p.Name,
+          Item: itemLabel,       // <-- always populated now
+          Items: items,          // full list for the modal
           Qty: (p.Qty !== '' && p.Qty != null) ? p.Qty : p.Delta,
           UoM: p.UoM,
           Note: p.Note,
           Reason: p.Reason,
-          RecordID: p.PendingID
-        }))
-        .sort((a,b) => new Date(b.When) - new Date(a.When));
+          RecordID: p.PendingID,
+          NextRole: (p.NextRole || p.nextRole || '')
+        };
+      })
+      .sort((a,b) => new Date(b.When) - new Date(a.When));
 
       const q = ($('#mineSearch').value||'').toLowerCase();
       const fStatus = $('#mineFilterStatus')?.value || '';
@@ -2539,10 +2822,22 @@
         frag.querySelector('.when').textContent   = when(rec.When);
         frag.querySelector('.status').innerHTML   = statusBadge(rec.Status);
         frag.querySelector('.sku').textContent    = rec.SKU || '';
-        frag.querySelector('.name').textContent   = rec.Item || '';
+        frag.querySelector('.name').textContent   = rec.Item || ''; // now reliably filled
         frag.querySelector('.qty').textContent    = (rec.Qty === '' || rec.Qty == null) ? '—' : fmt(rec.Qty);
         frag.querySelector('.uom').textContent    = rec.UoM || '';
         frag.querySelector('.recid').textContent  = rec.RecordID || '';
+
+        // Current Approver (nice label)
+        const roleNice = r => {
+          const v = String(r || '').toLowerCase();
+          if (v === 'manager') return 'Managers';
+          if (v === 'controller') return 'Controllers';
+          return r || '—';
+        };
+
+        // Only show role while Pending; otherwise "—"
+        const curr = (rec.Status === 'Pending') ? roleNice(rec.NextRole) : '—';
+        frag.querySelector('.current-approver').textContent = curr;
 
         frag.querySelector('.btn-view-req').addEventListener('click', ()=> openMyReqDetails(rec));
 
@@ -2595,24 +2890,72 @@
         // Show My Requests section
         $('#myRequestsWrap').style.display = 'block';
 
-        // Render counts for the user
-        const mineP = payload.minePending || [];
-        const mineL = payload.mineLedger  || [];
+        // Prefer backend-provided mine*; else filter globals by signed-in user
+        const myEmailLc = String(payload.user?.email || '').toLowerCase();
+
+        const mineP = (payload.minePending && Array.isArray(payload.minePending))
+          ? payload.minePending.filter(p => p.Type === 'ISSUE')
+          : (payload.pending || []).filter(p =>
+              p.Type === 'ISSUE' && String(p.By || '').toLowerCase() === myEmailLc
+            );
+
+        const mineL = (payload.mineLedger && Array.isArray(payload.mineLedger))
+          ? payload.mineLedger.filter(l => l.Type === 'ISSUE')
+          : (payload.ledger || []).filter(l =>
+              l.Type === 'ISSUE' && String(l.By || '').toLowerCase() === myEmailLc
+            );
+
+        // --- Count by DISTINCT REQUEST (not by row) ---
         const now = new Date();
         const cutoff = new Date(now.getTime() - 30*24*60*60*1000);
 
-        const open = mineP.filter(p => p.Type==='ISSUE' && p.Status==='Pending').length;
-        const approved30 = mineL.filter(l => l.Type==='ISSUE' && l.Status==='Approved' && new Date(l.When) >= cutoff).length;
-        const declined30 = mineL.filter(l => l.Type==='ISSUE' && l.Status==='Declined' && new Date(l.When) >= cutoff).length
-                        + mineP.filter(p => p.Type==='ISSUE' && p.Status==='Declined' && new Date(p.When) >= cutoff).length;
-        const total = mineL.filter(l => l.Type==='ISSUE').length + mineP.filter(p => p.Type==='ISSUE').length;
+        // Robust request key across Pending/Ledger:
+        // Pending uses PendingID; Ledger (multi-item) usually shares LinkID.
+        // Fall back to RecordID or ID as a last resort.
+        function reqKey(r){
+          return String(
+            r.PendingID ?? r.RecordID ?? r.LinkID ?? r.LinkId ?? r.ID ?? r.Id ?? ''
+          ).trim() || (
+            // absolute fallback (very rare): make a stable-ish composite
+            `${r.Type || 'ISSUE'}|${r.When || ''}|${r.By || ''}`
+          );
+        }
 
-        animateNumber($('#kpiSkus'),   0, open);
-        animateNumber($('#kpiOnhand'), 0, approved30);
-        animateNumber($('#kpiPending'),0, declined30);
-        animateNumber($('#kpiLedger'), 0, total);
+        // Open = distinct pending requests still Pending
+        const openKeys = new Set(
+          mineP.filter(p => p.Status === 'Pending').map(reqKey)
+        );
+        const open = openKeys.size;
 
-        // Filters + table
+        // Approved (30d) = distinct approved requests in ledger within window
+        const approvedKeys30 = new Set(
+          mineL.filter(l => l.Status === 'Approved' && new Date(l.When) >= cutoff).map(reqKey)
+        );
+        const approved30 = approvedKeys30.size;
+
+        // Declined (30d) = distinct declined requests (could be only in Pending OR in Ledger)
+        const declinedKeys30 = new Set([
+          // declined already finalized into ledger
+          ...mineL.filter(l => l.Status === 'Declined' && new Date(l.When) >= cutoff).map(reqKey),
+          // declined but still living on Pending (not finalized)
+          ...mineP.filter(p => p.Status === 'Declined' && new Date(p.When) >= cutoff).map(reqKey)
+        ]);
+        const declined30 = declinedKeys30.size;
+
+        // Total Requested (all time) = distinct requests across Pending + Ledger
+        const totalKeys = new Set([...mineP, ...mineL].map(reqKey));
+        const total = totalKeys.size;
+
+        // Drive tiles from MY distinct-requests view
+        animateNumber($('#kpiSkus'),    KPI_PREV.activeSkus, open);
+        animateNumber($('#kpiOnhand'),  KPI_PREV.onhand,     approved30);
+        animateNumber($('#kpiPending'), KPI_PREV.pending,    declined30);
+        animateNumber($('#kpiLedger'),  KPI_PREV.ledger,     total);
+
+        // Keep BOOT in sync with what we display
+        BOOT.minePending = mineP;
+        BOOT.mineLedger  = mineL;
+
         populateMineFilters(mineP);
         renderMine(mineP);
       } else {
@@ -2705,12 +3048,12 @@
 
 
 
-      ['pendFilterType','pendFilterBy'].forEach(id=>{
+      ['pendFilterType','pendFilterBy','pendFilterApprover'].forEach(id=>{
         document.getElementById(id)?.addEventListener('change', ()=>{ PAGE.pending=1; renderPending(BOOT.pending); });
       });
       $('#pendFilterClear')?.addEventListener('click', ()=>{
         $('#pendingSearch').value='';
-        ['pendFilterType','pendFilterBy'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+        ['pendFilterType','pendFilterBy','pendFilterApprover'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
         PAGE.pending=1; renderPending(BOOT.pending);
       });
 
@@ -2921,27 +3264,300 @@
       return parts.join(' <span class="text-muted">|</span> ');
     }
 
-    // Submit "Request Item" → queues an ISSUE for approval
+    // ===== Request flow (cart-style, multi-select up to 10) =====
     (function(){
-      var form = document.getElementById('formRequest');
-      if (!form) return;
+      const MAX_REQ_ITEMS = 10;
+      const RQ_CART = new Map(); // sku -> { sku, name, desc, cat, uom, onhand, qty }
 
-      form.addEventListener('submit', function(ev){
+      const els = {
+        modalReq:      document.getElementById('modalRequest'),
+        openCatalog:   document.getElementById('rqOpenCatalog'),
+        cartTableBody: document.querySelector('#rqCartTable tbody'),
+        cartMeta:      document.getElementById('rqCartMeta'),
+        submitBtn:     document.getElementById('rqSubmitBtn'),
+
+        // catalog
+        modalCat:    document.getElementById('modalSelectItems'),
+        catSearch:   document.getElementById('catSearch'),
+        catCat:      document.getElementById('catFilterCat'),
+        catUom:      document.getElementById('catFilterUom'),
+        catClear:    document.getElementById('catClear'),
+        catTbody:    document.querySelector('#tblCatalog tbody'),
+        catAddBtn:   document.getElementById('catAddSelected'),
+      };
+
+      function activeOnly(items){
+        // Do not show "Retired" and "On Hold"
+        return (items || []).filter(it => String(it.Status) === 'Active');
+      }
+
+      function renderRqCart(){
+        const rows = Array.from(RQ_CART.values());
+        els.cartTableBody.innerHTML = '';
+
+        if (!rows.length){
+          els.cartMeta.textContent = 'No items selected.';
+          els.submitBtn.disabled = false;
+          return;
+        }
+
+        rows.forEach(item => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td class="text-monospace">${item.sku || ''}</td>
+            <td>${item.name || ''}</td>
+            <td class="small text-secondary">${item.desc || ''}</td>
+            <td>${item.uom || ''}</td>
+            <td class="text-end">${fmt(item.onhand || 0)}</td>
+            <td class="text-end">
+              <input type="number" min="1" class="form-control form-control-sm text-end rqQtyInp" style="width:120px" value="${item.qty || 1}">
+            </td>
+            <td class="text-end">
+              <button type="button" class="btn btn-danger btn-sm rqRemove"><i class="fa-solid fa-trash-can"></i></button>
+            </td>
+          `;
+          tr.querySelector('.rqQtyInp').addEventListener('input', (e)=>{
+            const v = Number(e.target.value || 0);
+            RQ_CART.set(item.sku, { ...item, qty: v > 0 ? v : 1 });
+          });
+          tr.querySelector('.rqRemove').addEventListener('click', ()=>{
+            RQ_CART.delete(item.sku);
+            renderRqCart();
+          });
+          els.cartTableBody.appendChild(tr);
+        });
+
+        els.cartMeta.innerHTML = `${rows.length} item(s) selected. You may still add <b>${Math.max(0, MAX_REQ_ITEMS - rows.length)}</b>.`;
+        els.submitBtn.disabled = false;
+      }
+
+      // ---- Catalog (picker) ----
+      function buildCatalog(){
+        if (!els.catTbody) return;
+
+        // Populate filters (first time)
+        if (els.catCat && els.catCat.options.length <= 1){
+          const cats = Array.from(new Set(activeOnly(BOOT.items).map(i => i.Category).filter(Boolean))).sort();
+          els.catCat.innerHTML = '<option value="">All Categories</option>' + cats.map(c => `<option value="${c}">${c}</option>`).join('');
+        }
+        if (els.catUom && els.catUom.options.length <= 1){
+          const uoms = Array.from(new Set(activeOnly(BOOT.items).map(i => i.UoM).filter(Boolean))).sort();
+          els.catUom.innerHTML = '<option value="">All UoM</option>' + uoms.map(u => `<option value="${u}">${u}</option>`).join('');
+        }
+
+        const q  = (els.catSearch?.value || '').toLowerCase();
+        const fC = els.catCat?.value || '';
+        const fU = els.catUom?.value || '';
+
+        const list = activeOnly(BOOT.items).filter(it=>{
+          if (fC && String(it.Category || '') !== fC) return false;
+          if (fU && String(it.UoM || '') !== fU) return false;
+          const hay = `${it.SKU} ${it.Name} ${it.Description || ''}`.toLowerCase();
+          return q ? hay.includes(q) : true;
+        });
+
+        els.catTbody.innerHTML = '';
+
+        list.forEach(it=>{
+          const already  = RQ_CART.get(it.SKU);
+          const isInCart = !!already;
+
+          const tr = document.createElement('tr');
+          tr.classList.add('row-pickable');
+          tr.dataset.sku = it.SKU;
+
+          tr.innerHTML = `
+            <td>
+              <input type="checkbox" class="form-check-input catPick"
+                    ${isInCart ? 'checked disabled' : ''} title="${isInCart ? 'Already in cart' : ''}">
+            </td>
+            <td class="text-monospace">${it.SKU}</td>
+            <td>${it.Name}</td>
+            <td class="small text-secondary">${it.Description || ''}</td>
+            <td>${it.Category || ''}</td>
+            <td>${it.UoM || ''}</td>
+            <td class="text-end">${fmt(it.Qty || 0)}</td>
+            <td class="text-end">
+              <input type="number" min="1" class="form-control form-control-sm text-end catQty"
+                    style="width:120px" value="${isInCart ? (already.qty || 1) : 1}" ${isInCart ? 'disabled' : ''}>
+            </td>
+          `;
+
+          const cb  = tr.querySelector('.catPick');
+          const qty = tr.querySelector('.catQty');
+
+          // Helper that keeps row UI in sync with checkbox
+          function mark(picked){
+            // If the row is already in the cart, we lock it (checkbox is disabled)
+            if (cb.disabled) {
+              tr.classList.add('row-picked');
+              qty.disabled = true;
+              return;
+            }
+            cb.checked = !!picked;
+            qty.disabled = !picked;
+            tr.classList.toggle('row-picked', !!picked);
+          }
+
+          // Initial state
+          mark(cb.checked || isInCart);
+
+          // Single row click handler: toggle selection unless clicking directly on inputs
+          tr.addEventListener('click', (e) => {
+            if (e.target.closest('input')) return;  // let native input clicks work
+            if (cb.disabled) return;               // skip if already in cart
+            mark(!cb.checked);
+          });
+
+          // Checkbox changes → sync UI
+          cb.addEventListener('change', () => mark(cb.checked));
+
+          // Focus on qty auto-selects row (when allowed)
+          qty.addEventListener('focus', () => {
+            if (!cb.disabled && !cb.checked) mark(true);
+          });
+
+          // Guard qty values (>=1, integer)
+          qty.addEventListener('input', (e) => {
+            const v = Math.max(1, parseInt(e.target.value || '1', 10));
+            if (String(v) !== e.target.value) e.target.value = v;
+          });
+
+          els.catTbody.appendChild(tr);
+        });
+      }
+
+
+      function openCatalog(){
+        buildCatalog();
+        bootstrap.Modal.getOrCreateInstance(els.modalCat).show();
+      }
+
+      function addSelectedFromCatalog(){
+        const rows = Array.from(els.catTbody?.querySelectorAll('tr.row-pickable') || []);
+        const chosen = rows
+          .filter(r => r.classList.contains('row-picked'))
+          .map(r => {
+            const sku   = r.children[1]?.textContent.trim();
+            const name  = r.children[2]?.textContent.trim();
+            const desc  = r.children[3]?.textContent.trim();
+            const cat   = r.children[4]?.textContent.trim();
+            const uom   = r.children[5]?.textContent.trim();
+            const onhand= Number((r.children[6]?.textContent || '0').replace(/,/g,''));
+            const qty   = Number(r.querySelector('.catQty')?.value || 1);
+            return { sku, name, desc, cat, uom, onhand, qty: (qty>0?qty:1) };
+          });
+
+        if (!chosen.length){
+          toast('Select at least one item to add.');
+          return;
+        }
+
+        // Enforce 10-item limit
+        const space = MAX_REQ_ITEMS - RQ_CART.size;
+        if (space <= 0){
+          toast({ title:'Limit reached', message:'You already have 10 items in your request.', type:'warning' });
+          return;
+        }
+        const toAdd = chosen.slice(0, space);
+        toAdd.forEach(it => { if (!RQ_CART.has(it.sku)) RQ_CART.set(it.sku, it); });
+
+        // Feedback if some were not added due to limit
+        if (chosen.length > toAdd.length){
+          toast({ title:'Some not added', message:`Only ${space} more item(s) can be added.`, type:'warning' });
+        }
+
+        bootstrap.Modal.getOrCreateInstance(els.modalCat).hide();
+        renderRqCart();
+      }
+
+      // ---- Wire up events ----
+      els.openCatalog?.addEventListener('click', openCatalog);
+      els.catSearch?.addEventListener('input', buildCatalog);
+      els.catCat?.addEventListener('change', buildCatalog);
+      els.catUom?.addEventListener('change', buildCatalog);
+      els.catClear?.addEventListener('click', ()=>{
+        if (els.catSearch) els.catSearch.value = '';
+        if (els.catCat) els.catCat.value = '';
+        if (els.catUom) els.catUom.value = '';
+        buildCatalog();
+      });
+      els.catAddBtn?.addEventListener('click', addSelectedFromCatalog);
+
+      // Reset the cart each time the Request modal opens
+      els.modalReq?.addEventListener('shown.bs.modal', ()=>{
+        RQ_CART.clear();
+        renderRqCart();
+        // focus Select Items
+        setTimeout(()=> els.openCatalog?.focus(), 150);
+      });
+
+      // Submit: supports single OR multi-item requests
+      document.getElementById('formRequest')?.addEventListener('submit', function(ev){
         ev.preventDefault();
 
-        var sku     = (document.getElementById('rqSku').value || '').trim();
-        var qty     = Number(document.getElementById('rqQty').value || 0);
-        var reason  = (document.getElementById('rqReason').value || '').trim();
+        const reason = (document.getElementById('rqReason')?.value || '').trim();
+        if (!reason){
+          toast('Please provide a reason/purpose.', 'danger');
+          return;
+        }
 
-        if (!sku){ toast('Please pick an item from the list.', 'danger'); return; }
-        if (!(qty > 0)){ toast('Enter a valid quantity.', 'danger'); return; }
-        if (!reason){ toast('Please provide a reason/purpose.', 'danger'); return; }
+        const itemsInCart = Array.from(RQ_CART.values());
+        if (!itemsInCart.length){
+          toast('Please add at least one item.', 'danger');
+          return;
+        }
 
-        var emp  = (BOOT && BOOT.user && (BOOT.user.name || BOOT.user.email)) ? (BOOT.user.name || BOOT.user.email) : 'Requester';
-        var dept = (BOOT && BOOT.user && BOOT.user.department) ? BOOT.user.department : '';
+        // Requester meta (fallbacks kept)
+        const requester = {
+          name:  (BOOT?.user?.name  || BOOT?.user?.email || 'Requester'),
+          email: (BOOT?.user?.email || ''),
+          department: (BOOT?.user?.department || '')
+        };
 
-        var btn = form.querySelector('button[type="submit"]');
+        const btn = els.submitBtn;
         setLoading(btn, true, 'Submitting...');
+
+        // Back-compat: if only one item, keep using the existing single-item endpoint.
+        if (itemsInCart.length === 1){
+          const it = itemsInCart[0];
+          // single
+          const payload = {
+            type: 'ISSUE',                    // ← force transaction type
+            items: [{ SKU: it.sku, Qty: Number(it.qty || 1) }],
+            reason,
+            requester // { name, email, department }
+          };
+          google.script.run
+            .withSuccessHandler(function(){
+              setLoading(btn, false);
+              bootstrap.Modal.getOrCreateInstance('#modalRequest').hide();
+              toast('Request submitted for approval.', 'success');
+              loadApp({ silent: true });
+            })
+            .withFailureHandler(function(e){
+              setLoading(btn, false);
+              toast(e?.message || 'Failed to submit request.', 'danger');
+            })
+            .actionRequestItems(payload);
+          return;
+        }
+
+
+        // Multi-item payload → matches updated Code.gs
+        // If your server function is named differently (e.g. actionIssueMulti),
+        // change only the function name below.
+        const payload = {
+          type: 'ISSUE',                    // ← force transaction type
+          items: itemsInCart.map(it => ({
+            SKU: it.sku,
+            Qty: Number(it.qty || 1),
+            UoM: it.uom || '',
+            Name: it.name || ''
+          })),
+          reason,
+          requester
+        };
 
         google.script.run
           .withSuccessHandler(function(){
@@ -2952,9 +3568,9 @@
           })
           .withFailureHandler(function(e){
             setLoading(btn, false);
-            toast(e && e.message ? e.message : 'Failed to submit request.', 'danger');
+            toast(e?.message || 'Failed to submit request.', 'danger');
           })
-          .actionIssue(sku, qty, emp, dept, reason);
+          .actionRequestItems(payload); // ← update this name if your Code.gs uses a different one
       });
     })();
     

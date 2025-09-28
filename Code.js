@@ -127,6 +127,324 @@ function getSpreadsheetInfo() {
 }
 
 /* ---------------- Helpers ---------------- */
+function getLiveUserData() {
+  // Minimal payload for periodic refresh (fast + cheap)
+  return {
+    user: getCurrentUser(),
+    counts: getCounts(),
+    pending: getPending(),
+    minePending: getMyActivity().minePending,
+    serverNow: nowISO(),
+    cacheBuster: Utilities.getUuid()
+  };
+}
+
+function _asDate_(v){
+  const d = new Date(v);
+  return isNaN(d) ? null : d;
+}
+function _reqKeyFromRow_(r, isPending){
+  // Prefer request-scoped ids; fall back sanely
+  return String(
+    isPending
+      ? (r.PendingID || r.LinkID || r.ID || r.Id)
+      : (r.ID       || r.LinkID || r.PendingID || r.Id)
+  ).trim();
+}
+function computeMySLA_(emailLc){
+  emailLc = String(emailLc||'').toLowerCase();
+  const penAll = _readObjects(sheet(SHEET_PENDING))
+                  .filter(r => String(r.By||'').toLowerCase() === emailLc);
+  const ledAll = _readObjects(sheet(SHEET_LEDGER))
+                  .filter(r => String(r.By||'').toLowerCase() === emailLc);
+
+  const now = new Date();
+  const cutoff = new Date(now.getTime() - 30*24*60*60*1000);
+
+  const openKeys = new Set(
+    penAll
+      .filter(p => String(p.Status) === 'Pending')
+      .map(p => _reqKeyFromRow_(p, true))
+  );
+
+  const approvedKeys30 = new Set(
+    ledAll
+      .filter(l => String(l.Status) === 'Approved')
+      .filter(l => {
+        // prefer ReviewedAt, fallback to When
+        const d = _asDate_(l.ReviewedAt || l.When);
+        return d && d >= cutoff;
+      })
+      .map(l => _reqKeyFromRow_(l, false))
+  );
+
+  const declinedKeys30 = new Set([
+    // Declined finalized into Ledger
+    ...ledAll
+      .filter(l => String(l.Status) === 'Declined')
+      .filter(l => {
+        const d = _asDate_(l.ReviewedAt || l.When);
+        return d && d >= cutoff;
+      })
+      .map(l => _reqKeyFromRow_(l, false)),
+    // Declined that never left Pending
+    ...penAll
+      .filter(p => String(p.Status) === 'Declined')
+      .filter(p => {
+        const d = _asDate_(p.ReviewedAt || p.When);
+        return d && d >= cutoff;
+      })
+      .map(p => _reqKeyFromRow_(p, true))
+  ]);
+
+  const totalKeys = new Set([
+    ...penAll.map(p => _reqKeyFromRow_(p, true)),
+    ...ledAll.map(l => _reqKeyFromRow_(l, false))
+  ]);
+
+  return {
+    open: openKeys.size,
+    approved30: approvedKeys30.size,
+    declined30: declinedKeys30.size,
+    total: totalKeys.size
+  };
+}
+
+/**
+ * Return a normalized approval flow for a pending transaction.
+ * Output shape (array in intended order):
+ *   [{ role, name, email, status, at, isCurrent }]
+ *
+ * How it works (robust/fallback-friendly):
+ *  - If Pending row has PayloadJSON.approval.flow, normalize & return it.
+ *  - Else infer roles (ISSUE → manager->controller; others → controller only).
+ *  - Parse stamps from row.Note/Details like "[Approved by Manager ...]" to mark steps.
+ *  - If still Pending, first non-Approved step becomes current.
+ *  - Names/emails are looked up from "Users" sheet (Active users with Role=step.role).
+ */
+function getApproverFlow(pendingId) {
+  pendingId = String(pendingId || "").trim();
+  if (!pendingId) throw new Error("Missing PendingID");
+
+  var ss = SpreadsheetApp.getActive();
+  var sh = ss.getSheetByName("Pending");
+  if (!sh) throw new Error('Sheet "Pending" not found');
+
+  var values = sh.getDataRange().getValues();
+  if (!values.length) throw new Error('No data in "Pending"');
+
+  var head = values[0].map(String);
+  var idx = function (k) { return head.indexOf(k); };
+
+  var iPendingID = idx("PendingID");
+  if (iPendingID < 0) throw new Error('Column "PendingID" not found in "Pending"');
+
+  var iType      = idx("Type");
+  var iStatus    = idx("Status");
+  var iNote      = idx("Note");
+  var iDetails   = idx("Details");
+  var iPayload   = idx("PayloadJSON");
+  var iNextRole  = idx("NextRole");           // <-- new
+  var iCurAppr   = idx("CurrentApprover");    // optional
+  var iApprCsv   = idx("ApproversCSV");       // optional
+
+  var rowIndex = -1;
+  for (var r = 1; r < values.length; r++) {
+    if (String(values[r][iPendingID]) === pendingId) { rowIndex = r; break; }
+  }
+  if (rowIndex < 0) throw new Error("PendingID not found: " + pendingId);
+
+  var row     = values[rowIndex];
+  var type    = iType    > -1 ? String(row[iType])    : "";
+  var status  = iStatus  > -1 ? String(row[iStatus])  : "";
+  var note    = iNote    > -1 ? String(row[iNote]||""): "";
+  var details = iDetails > -1 ? String(row[iDetails]||""): "";
+  var nextRole= iNextRole>-1 ? String(row[iNextRole]||"").toLowerCase() : "";
+  var curName = iCurAppr >-1 ? String(row[iCurAppr] || "") : "";
+  var apprCsv = iApprCsv >-1 ? String(row[iApprCsv] || "") : "";
+
+  var payload = null;
+  if (iPayload > -1 && row[iPayload]) {
+    try { payload = JSON.parse(row[iPayload]); } catch (e) {}
+  }
+
+  // 1) Prefer structured payload flow
+  var flow = [];
+  var fromPayload = payload && (payload.approval && payload.approval.flow ||
+                                payload.request && payload.request.approvers ||
+                                payload.approvers);
+  if (Array.isArray(fromPayload) && fromPayload.length) {
+    flow = fromPayload.map(function (a) {
+      return {
+        role:      (a.role || a.Role || "").toString().toLowerCase(),
+        name:      a.name || a.Name || "",
+        email:     a.email || a.Email || "",
+        status:    a.status || a.Status || "Pending",
+        at:        a.at || a.At || "",
+        isCurrent: !!(a.isCurrent || a.Current)
+      };
+    });
+  }
+
+  // 2) Else, build flow from ApproversCSV/CurrentApprover if available
+  if (!flow.length && apprCsv) {
+    var names = apprCsv.split(",").map(function(s){return String(s).trim();}).filter(Boolean);
+    flow = names.map(function(n){
+      return {
+        role: "",                  // unknown from CSV
+        name: n,
+        email: "",
+        status: "Pending",
+        at: "",
+        isCurrent: curName && n.toLowerCase() === curName.toLowerCase()
+      };
+    });
+  }
+
+  // 3) Else, infer roles by Type
+  if (!flow.length) {
+    var roles = (String(type) === "ISSUE")
+      ? ["manager", "controller"]
+      : ["controller"];
+    flow = roles.map(function (role) {
+      return { role: role, name: "", email: "", status: "Pending", at: "", isCurrent: false };
+    });
+  }
+
+  // 4) Apply stamps from Note/Details to set status per role/name
+  var blob = (note + "\n" + details).toLowerCase();
+  function has(needle){ return blob.indexOf(needle) > -1; }
+
+  flow.forEach(function (step) {
+    // Try by role
+    if (step.role) {
+      if (has("[approved by " + step.role)) step.status = "Approved";
+      else if (has("[declined by " + step.role)) step.status = "Declined";
+      else if (has("[voided by " + step.role)) step.status = "Voided";
+    }
+    // Try by name as well (if role absent)
+    if (!step.role && step.name) {
+      var nm = step.name.toLowerCase();
+      if (has("[approved by " + nm)) step.status = "Approved";
+      else if (has("[declined by " + nm)) step.status = "Declined";
+      else if (has("[voided by " + nm)) step.status = "Voided";
+    }
+  });
+
+  // 5) If whole request is Declined/Voided, reflect that on the first non-approved step
+  if (/^declined$/i.test(status)) {
+    var d = flow.find(function (s){ return s.status !== "Approved"; });
+    if (d) d.status = "Declined";
+  } else if (/^voided$/i.test(status)) {
+    var v = flow.find(function (s){ return s.status !== "Approved"; });
+    if (v) v.status = "Voided";
+  }
+
+  // 6) Mark "current" based on NextRole (this mirrors your emails)
+  flow.forEach(function (s){ s.isCurrent = false; });
+  if (/^pending$/i.test(status) && nextRole) {
+    // First try to find that role
+    var cur = flow.find(function (s){ return String(s.role||"").toLowerCase() === nextRole; });
+    if (cur) {
+      cur.isCurrent = true;
+    } else {
+      // If our flow doesn’t include it (e.g., CSV names only), inject a step for visibility
+      flow.unshift({ role: nextRole, name: "", email: "", status: "Pending", at: "", isCurrent: true });
+    }
+  } else {
+    // Fallback: the first Pending one is current
+    var p = flow.find(function (s){ return s.status === "Pending"; });
+    if (p) p.isCurrent = true;
+  }
+
+  // 7) If we only have roles, enrich with directory (Users sheet)
+  try {
+    var directory = _getActiveUsersByRole_(); // { role:[{name,email}...] }
+    flow.forEach(function (s) {
+      if (!s) return;
+      if (!s.role) return; // CSV-only rows might not have a role
+      var list = directory[s.role] || [];
+      if (list.length) {
+        if (!s.name)  s.name  = list.map(function(u){ return u.name; }).join(", ");
+        if (!s.email) s.email = list.length === 1 ? list[0].email : "";
+      }
+    });
+  } catch (e) {}
+
+  return flow;
+}
+
+
+/**
+ * Build { role: [{name,email}], ... } from "Users" sheet.
+ * Expected headers: Name, Email, Role, Status
+ */
+function _getActiveUsersByRole_() {
+  var ss = SpreadsheetApp.getActive();
+  var sh = ss.getSheetByName("Users");
+  var out = {};
+  if (!sh) return out;
+
+  var values = sh.getDataRange().getValues();
+  if (!values.length) return out;
+
+  var head = values[0].map(String);
+  var iName   = head.indexOf("Name");
+  var iEmail  = head.indexOf("Email");
+  var iRole   = head.indexOf("Role");
+  var iStatus = head.indexOf("Status");
+
+  for (var r = 1; r < values.length; r++) {
+    var status = iStatus > -1 ? String(values[r][iStatus]) : "Active";
+    if (/^disabled$/i.test(status) || /^pending$/i.test(status) || /^no$/i.test(status)) continue;
+
+    var role = iRole > -1 ? String(values[r][iRole]).toLowerCase() : "";
+    if (!role) continue;
+
+    if (!out[role]) out[role] = [];
+    out[role].push({
+      name:  iName  > -1 ? String(values[r][iName])  : "",
+      email: iEmail > -1 ? String(values[r][iEmail]) : ""
+    });
+  }
+  return out;
+}
+
+function buildApproverFlow_(pen){
+  // Steps by type:
+  //  - RECEIVE: controller only
+  //  - ISSUE / REQUEST: manager → controller
+  var type = String(pen && pen.Type || '').toUpperCase();
+  var steps = (type === 'RECEIVE') ? ['controller'] : ['manager','controller'];
+
+  var hist = [];
+  try { hist = pen && pen.ApprovalsJSON ? JSON.parse(pen.ApprovalsJSON) : []; } catch(e){ hist = []; }
+  var curRole = String(pen && pen.NextRole || '').toLowerCase();
+
+  // Helper to find approvals/declines per role
+  function findForRole(role){
+    role = String(role||'').toLowerCase();
+    var dec = hist.find(function(h){ return String(h.role||'').toLowerCase() === role && h.declined; });
+    var app = hist.find(function(h){ return String(h.role||'').toLowerCase() === role && !h.declined; });
+    if (dec) return { status:'Declined', at: dec.at || '', comment: dec.reason || dec.comment || '' };
+    if (app) return { status:'Approved', at: app.at || '', comment: app.comment || '' };
+    return { status:'Pending', at:'', comment:'' };
+  }
+
+  // Return compact, group-level flow (labels match what the UI shows)
+  return steps.map(function(role, idx){
+    var res = findForRole(role);
+    return {
+      name: role === 'manager' ? 'Managers' : 'Controllers',
+      email: '',
+      status: res.status,    // Pending | Approved | Declined
+      at: res.at,
+      comment: res.comment,
+      isCurrent: (res.status === 'Pending' && curRole === role)
+    };
+  });
+}
+
 // NEW: look up a user's role by email (Active users only)
 function getRoleByEmail(email){
   if(!email) return '';
@@ -330,27 +648,41 @@ function getLedger(limit) {
 }
 function getPending() {
   const me = getCurrentUser();
-  const all = _readObjects(sheet(SHEET_PENDING)).filter(p => p.Status === 'Pending');
+  const base = _readObjects(sheet(SHEET_PENDING)).filter(p => p.Status === 'Pending');
 
-  // Controllers: everything
-  if (me.role === 'controller' && me.status === 'Active') return all;
-
-  // Managers: show items they can act on (not submitted by a manager), PLUS their own pending (read-only)
-  if (me.role === 'manager' && me.status === 'Active') {
-    const mine = all.filter(p => String(p.By || '').toLowerCase() === String(me.email || '').toLowerCase());
-    const approvables = all.filter(p => getRoleByEmail(p.By) !== 'manager'); // same rule as before
-    // de-dupe union
-    const seen = new Set();
-    return approvables.concat(mine).filter(r => { const k = r.PendingID; if (seen.has(k)) return false; seen.add(k); return true; });
+  // Helper: decorate for UI (Current Approver label + role token)
+  function decorate(rows){
+    return rows.map(r => {
+      const role = String(r.NextRole || '').toLowerCase();
+      const label = role === 'manager' ? 'Managers'
+                  : role === 'controller' ? 'Controllers'
+                  : '';
+      return Object.assign({}, r, {
+        CurrentApprover: label,
+        CurrentApproverRole: role
+      });
+    });
   }
 
-  // Users (Active): only their own pending (read-only)
+  // Controllers: everything
+  if (me.role === 'controller' && me.status === 'Active') return decorate(base);
+
+  // Managers: approvables + mine (dedup)
+  if (me.role === 'manager' && me.status === 'Active') {
+    const mine = base.filter(p => String(p.By || '').toLowerCase() === String(me.email || '').toLowerCase());
+    const approvables = base.filter(p => getRoleByEmail(p.By) !== 'manager');
+    const seen = new Set();
+    return decorate(approvables.concat(mine).filter(r => { const k = r.PendingID; if (seen.has(k)) return false; seen.add(k); return true; }));
+  }
+
+  // Users: only theirs
   if (me.status === 'Active' && me.email) {
-    return all.filter(p => String(p.By || '').toLowerCase() === String(me.email || '').toLowerCase());
+    return decorate(base.filter(p => String(p.By || '').toLowerCase() === String(me.email || '').toLowerCase()));
   }
 
   return [];
 }
+
 
 
 function getCounts() {
@@ -362,14 +694,41 @@ function getCounts() {
 function getMyActivity() {
   const me = getCurrentUser();
   const email = (me.email || '').toLowerCase();
-  const allPending = _readObjects(sheet(SHEET_PENDING));
-  const allLedger  = _readObjects(sheet(SHEET_LEDGER));
 
-  const minePending = allPending.filter(r => String(r.By || '').toLowerCase() === email);
-  const mineLedger  = allLedger.filter(r => String(r.By || '').toLowerCase() === email);
+  // Read all rows for the user
+  const allPending = _readObjects(sheet(SHEET_PENDING))
+    .filter(r => String(r.By || '').toLowerCase() === email);
+  const allLedger  = _readObjects(sheet(SHEET_LEDGER))
+    .filter(r => String(r.By || '').toLowerCase() === email);
 
-  return { minePending, mineLedger };
+  // What the UI shows in "My Requests" table = only still-pending requests
+  let minePending = allPending
+    .filter(r => String(r.Status) === 'Pending')
+    .map(function(r){
+      // Keep the compact stage flow for the Request Details modal
+      const flow = buildApproverFlow_(r);
+      // Also surface Requested Items for the modal “Item” list
+      let itemsList = [];
+      try {
+        const p = r && r.PayloadJSON ? JSON.parse(r.PayloadJSON) : null;
+        if (p && Array.isArray(p.items) && p.items.length) {
+          itemsList = p.items.map(it => (it.Name || it.name || it.SKU || '').toString()).filter(Boolean);
+        } else if (r.Name) {
+          itemsList = [String(r.Name)];
+        }
+      } catch(e){}
+      return Object.assign({}, r, { Approvers: flow, RequestedItems: itemsList });
+    });
+
+  // Ledger stays raw; UI doesn’t render it directly for pending list
+  const mineLedger = allLedger;
+
+  // Pre-compute SLA (distinct requests)
+  const mySLA = computeMySLA_(email);
+
+  return { minePending, mineLedger, mySLA };
 }
+
 
 function getBootstrap() {
   // Make columns E..H = RequestedRole, Role, Status, CreatedAt
@@ -409,22 +768,23 @@ function getBootstrap() {
   return {
     user: me,
     counts: getCounts(),
-    items,
+    items: items.map(it => Object.assign({}, it, { ItemDescription: it.Description || '' })), // helpful alias
     pending: getPending(),
     usersPending,
     ledger: getLedger(500),
     minePending: my.minePending,
     mineLedger:  my.mineLedger,
+    mySLA:       my.mySLA,
     db: info,
     businessUnits,
     departments,
     deploymentLocations,
-    categories,                  
-    lookups: { businessUnits, departments, deploymentLocations, categories } 
+    categories,
+    lookups: { businessUnits, departments, deploymentLocations, categories },
+    serverNow: nowISO(),               // ⬅️ fresh timestamp for polling
+    cacheBuster: Utilities.getUuid()   // ⬅️ always changes, guarantees UI sees a diff
   };
 }
-
-
 
 /* ---------------- SKU History (normalized; supports multi-item tx) ---------------- */
 /* ---------------- SKU History (normalized; supports multi-item tx) ---------------- */
@@ -554,15 +914,16 @@ function getSkuHistory(sku) {
       qty = (String(l.Type) === 'CREATE_SKU') ? null : Number(itemRec.qty || 0);
       uom = itemRec.UoM || '';
     } else {
-      // Fallback parse (for receive/issue lines only)
+      // Fallback parse (applies to RECEIVE / ISSUE / CREATE_SKU lines)
       const line = String(l.Note || '')
         .split('\n')
         .map(s => s.trim())
         .find(s => s.endsWith('(' + sku + ')'));
       if (line) {
+        // Pattern emitted by _summarizeMulti_ for all multi ops (qty is "0" for CREATE_SKU)
         const m = line.match(/^\d+\.\s*([\d.]+)\s+([^\s]+)\s+—/);
         if (m) {
-          qty = Number(m[1]);
+          qty = (String(l.Type) === 'CREATE_SKU') ? null : Number(m[1]);
           uom = m[2];
         }
       }
@@ -690,8 +1051,10 @@ function queuePending(rec) {
   const requesterRole = String(me.role || '').toLowerCase();
   const stage1Role =
     (rec.type === 'RECEIVE') ? 'controller' :
-    (rec.type === 'ISSUE')   ? (requesterRole === 'manager' ? 'controller' : 'manager') :
+    (rec.type === 'ISSUE'   || rec.type === 'REQUEST')
+                             ? (requesterRole === 'manager' ? 'controller' : 'manager') :
     '';
+
 
   _append(sheet(SHEET_PENDING), {
     PendingID: pendingId, LinkID: linkId, When: nowISO(),
@@ -714,7 +1077,7 @@ function queuePendingMulti(rec) {
   const me = getCurrentUser();
   if (!me.email || me.status !== 'Active') throw new Error('Not authorized.');
   if (!rec || !Array.isArray(rec.items) || rec.items.length === 0) throw new Error('No items supplied.');
-  if (!['RECEIVE','ISSUE','CREATE_SKU'].includes(String(rec.type))) throw new Error('Unsupported type for multi: ' + rec.type);
+  if (!['RECEIVE','ISSUE','REQUEST','CREATE_SKU'].includes(String(rec.type))) throw new Error('Unsupported type for multi: ' + rec.type);
 
   const linkId    = nextTrxId();
   const pendingId = linkId + '-P';
@@ -776,9 +1139,10 @@ function queuePendingMulti(rec) {
   });
 
     const requesterRole = String(me.role || '').toLowerCase();
-    const stage1Role =
+  const stage1Role =
     (rec.type === 'RECEIVE') ? 'controller' :
-    (rec.type === 'ISSUE')   ? (requesterRole === 'manager' ? 'controller' : 'manager') :
+    (rec.type === 'ISSUE'   || rec.type === 'REQUEST')
+                             ? (requesterRole === 'manager' ? 'controller' : 'manager') :
     '';
 
 
@@ -813,6 +1177,208 @@ function queuePendingMulti(rec) {
 
 
 /* ---------------- Actions ---------------- */
+// Helper: look up current user's employee details from Users sheet
+function getCurrentEmployee_() {
+  var email = (Session.getActiveUser() && Session.getActiveUser().getEmail()) || '';
+  email = String(email || '').trim().toLowerCase();
+  var ss   = SpreadsheetApp.getActive();
+  var sh   = ss.getSheetByName('Users');
+  if (!sh) return { name: '', department: '', email: email };
+
+  var values = sh.getDataRange().getValues(); // expects header row
+  var h = values[0].map(String);
+  var iEmail = h.indexOf('Email');
+  var iName  = h.indexOf('Name');
+  var iDept  = h.indexOf('Department');
+  for (var r = 1; r < values.length; r++) {
+    var rowEmail = String(values[r][iEmail] || '').trim().toLowerCase();
+    if (rowEmail && rowEmail === email) {
+      return {
+        name: String(values[r][iName] || ''),
+        department: String(values[r][iDept] || ''),
+        email: email
+      };
+    }
+  }
+  return { name: '', department: '', email: email };
+}
+
+/**
+ * Frontend entry: google.script.run.actionRequestItems(...)
+ * Accepts:
+ *   - payload: { items:[{SKU/sku, Qty/qty}], reason, requester:{name,email,department} }
+ *   - OR legacy positional args (kept for compatibility)
+ */
+function actionRequestItems(payloadOrItems, employee, department, reason, businessUnit, deploymentLocation) {
+  var items = [];
+  var emp = employee, dept = department, rsn = reason, bu = businessUnit, depLoc = deploymentLocation;
+  var explicitType = ''; // 'ISSUE' | 'REQUEST' | ''
+
+  if (Array.isArray(payloadOrItems)) {
+    items = payloadOrItems || [];
+  } else if (payloadOrItems && typeof payloadOrItems === 'object') {
+    items        = payloadOrItems.items || [];
+    rsn          = payloadOrItems.reason;
+    bu           = payloadOrItems.businessUnit;
+    depLoc       = payloadOrItems.deploymentLocation;
+    explicitType = String(payloadOrItems.type || '').toUpperCase();  // ← new
+
+    // pull employee/department from payload.requester if present
+    if (payloadOrItems.requester && typeof payloadOrItems.requester === 'object') {
+      emp  = emp  || payloadOrItems.requester.name;
+      dept = dept || payloadOrItems.requester.department;
+      // requester.email is available if needed
+    }
+
+    // If still missing, resolve from Users by current session email
+    if (!emp || !dept) {
+      var who = getCurrentEmployee_();
+      emp  = emp  || who.name;
+      dept = dept || who.department;
+    }
+  } else {
+    throw new Error('Invalid payload for actionRequestItems.');
+  }
+
+  if (!emp)  throw new Error('Employee is required.');
+  if (!dept) throw new Error('Department is required.');
+
+  // Normalize items (tolerate SKU/sku and Qty/qty/quantity/Quantity)
+  var normalized = (items || [])
+    .map(function(it) {
+      var sku = String((it && (it.sku ?? it.SKU)) || '').trim();
+      var rawQty = (it && (it.qty ?? it.Qty ?? it.quantity ?? it.Quantity));
+      var qtyNum = Number(rawQty);
+      return { sku: sku, qty: (Number.isFinite(qtyNum) ? qtyNum : NaN) };
+    })
+    .filter(function(it){ return it.sku && it.qty > 0; });
+
+  if (normalized.length === 0) {
+    throw new Error('No valid items provided.');
+  }
+
+  // Decide target action set by type; default to legacy Request
+  var isIssue = (explicitType === 'ISSUE');
+
+  if (normalized.length === 1) {
+    var it = normalized[0];
+    return isIssue
+      ? actionIssue(it.sku, it.qty, emp, dept, rsn, bu, depLoc)
+      : actionRequest(it.sku, it.qty, emp, dept, rsn, bu, depLoc);
+  }
+
+  return isIssue
+    ? actionIssueMulti(normalized, emp, dept, rsn, bu, depLoc)
+    : actionRequestMulti(normalized, emp, dept, rsn, bu, depLoc);
+}
+
+function actionRequest(sku, qty, employee, department, reason, businessUnit, deploymentLocation) {
+  if (!sku || !(qty > 0)) throw new Error('Invalid request');
+  const me = getCurrentUser();
+  const it = _findBy(sheet(SHEET_ITEMS), 'SKU', sku);
+  if (!it) throw new Error('SKU not found');
+  if (String(it.Status) !== 'Active') throw new Error('Item must be Active to request.');
+  if (Number(qty) > Number(it.Qty || 0)) throw new Error('Cannot request more than on-hand quantity');
+
+  const parenthetical = `${department}${businessUnit ? ' | ' + businessUnit : ''}`;
+  const note = `Requested for ${employee} (${parenthetical}).`;
+
+  // Auto-approve for controllers (same as Issue)
+  if (me.role === 'controller' && me.status === 'Active') {
+    const itemsSh = sheet(SHEET_ITEMS);
+    const toQty = Number(it.Qty || 0) - Math.abs(qty);
+    if (toQty < 0) throw new Error('Cannot issue more than on-hand during finalize.');
+    _updateByKey(itemsSh, 'SKU', sku, { Qty: toQty, UpdatedAt: nowISO() });
+
+    const linkId = nextTrxId();
+    _append(sheet(SHEET_LEDGER), {
+      ID: linkId, When: nowISO(), Type:'REQUEST', SKU: sku, Item: it.Name,
+      Delta: -Math.abs(qty), UoM: it.UoM, Status:'Approved', By: me.email,
+      Note: appendNoteUnique_(note, stamp_('Fully Approved', me.email, ''))
+    });
+
+    const payload = { meta: { employee:String(employee||''), department:String(department||''), businessUnit: businessUnit?String(businessUnit):'', deploymentLocation: deploymentLocation?String(deploymentLocation):'' } };
+    const pseudoPen = { Type:'REQUEST', SKU:sku, Name:it.Name, UoM:it.UoM, Qty:qty, Delta:-Math.abs(qty), By:me.email, Note:note, Reason:String(reason||''), PendingID:'', LinkID:linkId, PayloadJSON: JSON.stringify(payload) };
+    notifyApprovedEvent('REQUEST', pseudoPen);
+    notifyRequesterResult('Approved', pseudoPen);
+    return { ok:true, linkId };
+  }
+
+  return queuePending({
+    type: 'REQUEST',
+    sku,
+    name: it.Name,
+    uom: it.UoM,
+    qty,
+    delta: -Math.abs(qty),
+    reason,
+    note,
+    payload: {
+      meta: {
+        employee: String(employee || ''),
+        department: String(department || ''),
+        businessUnit: businessUnit ? String(businessUnit) : '',
+        deploymentLocation: deploymentLocation ? String(deploymentLocation) : ''
+      }
+    }
+  });
+}
+
+function actionRequestMulti(items, employee, department, reason, businessUnit, deploymentLocation) {
+  if (!Array.isArray(items) || !items.length) throw new Error('No items to request.');
+  if (!employee)   throw new Error('Employee is required.');
+  if (!department) throw new Error('Department is required.');
+  if (!reason)     throw new Error('Reason is required.');
+
+  const me = getCurrentUser();
+  const all = items.map(it => {
+    const row = _findBy(sheet(SHEET_ITEMS), 'SKU', it.sku);
+    if (!row) throw new Error('SKU not found: ' + it.sku);
+    if (String(row.Status) !== 'Active') throw new Error('Item must be Active: ' + it.sku);
+    const qty = Number(it.qty||0);
+    if (!(qty > 0)) throw new Error('Invalid qty for ' + it.sku);
+    if (qty > Number(row.Qty||0)) throw new Error('Insufficient stock for ' + it.sku);
+    return { SKU: row.SKU, Name: row.Name, UoM: row.UoM, qty, delta: -Math.abs(qty) };
+  });
+
+  const parenthetical = `${department}${businessUnit ? ' | ' + businessUnit : ''}`;
+  const note = `Requested for ${employee} (${parenthetical}).`;
+
+  // Auto-approve for controllers (same as Issue)
+  if (me.role === 'controller' && me.status === 'Active') {
+    const itemsSh = sheet(SHEET_ITEMS);
+    all.forEach(it => {
+      const row = _findBy(itemsSh, 'SKU', it.SKU);
+      const toQty = Number(row.Qty||0) + Number(it.delta||0); // delta negative
+      if (toQty < 0) throw new Error('Cannot issue more than on-hand during finalize: ' + it.SKU);
+      _updateByKey(itemsSh, 'SKU', it.SKU, { Qty: toQty, UpdatedAt: nowISO() });
+    });
+
+    const linkId = nextTrxId();
+    const sum = _summarizeMulti_('ISSUE', all, note); // use Issue phrasing
+    _immediateLedger_('REQUEST', linkId, { items: all, note }, sum.listText, all.map(b=>b.SKU).join(', '), sum.title, 'mixed', all.reduce((a,b)=>a+Number(b.delta||0),0));
+
+    const payload = { meta: { employee:String(employee||''), department:String(department||''), businessUnit: businessUnit?String(businessUnit):'', deploymentLocation: deploymentLocation?String(deploymentLocation):'' } };
+    const pseudoPen = { Type:'REQUEST', SKU: all.map(b=>b.SKU).join(', '), Name: sum.title, UoM:'mixed', Qty:'', Delta: all.reduce((a,b)=>a+Number(b.delta||0),0), By: me.email, Note: sum.listText, Reason:String(reason||''), PendingID:'', LinkID:linkId, PayloadJSON: JSON.stringify({items:all, ...payload}) };
+    notifyApprovedEvent('REQUEST', pseudoPen);
+    notifyRequesterResult('Approved', pseudoPen);
+    return { ok:true, linkId };
+  }
+
+  return queuePendingMulti({
+    type: 'REQUEST',
+    items: all,
+    note,
+    reason,
+    meta: {
+      employee: String(employee || ''),
+      department: String(department || ''),
+      businessUnit: businessUnit ? String(businessUnit) : '',
+      deploymentLocation: deploymentLocation ? String(deploymentLocation) : ''
+    }
+  });
+}
+
 function _immediateLedger_(type, linkId, payload, note, skuCsv, itemTitle, uomCell, deltaNum){
   _append(sheet(SHEET_LEDGER), {
     ID: linkId,
@@ -1195,11 +1761,11 @@ function approvePending(pendingId, commentOpt) {
   const type = pen.Type;
   const finalStep =
     (type === 'RECEIVE' && nextRole === 'controller') ||
-    (type === 'ISSUE'   && nextRole === 'controller' && (stage === 1 || stage === 2));
+    ((type === 'ISSUE' || type === 'REQUEST') && nextRole === 'controller' && (stage === 1 || stage === 2));
 
   if (!finalStep) {
-    // move to next stage (ISSUE only: manager -> controller)
-    const next = (type === 'ISSUE' && nextRole === 'manager') ? 'controller' : '';
+    // move to next stage (ISSUE/REQUEST: manager -> controller)
+    const next = ((type === 'ISSUE' || type === 'REQUEST') && nextRole === 'manager') ? 'controller' : '';
     if (!next) throw new Error('Flow configuration error: no next role.');
     _updateByKey(sheet(SHEET_PENDING), 'PendingID', pendingId, {
       Stage: stage + 1,
@@ -1230,7 +1796,7 @@ function approvePending(pendingId, commentOpt) {
     const fromQty = Number(row.Qty || 0);
     const toQty   = fromQty + Number(delta || 0);
 
-    if (type === 'ISSUE' && toQty < 0) {
+    if ((type === 'ISSUE' || type === 'REQUEST') && toQty < 0) {
       throw new Error('Cannot issue more than on-hand during finalize: ' + sku);
     }
 
@@ -1296,13 +1862,19 @@ function declinePending(pendingId, reason) {
   const pen = _findBy(sheet(SHEET_PENDING), 'PendingID', pendingId);
   if (!pen) throw new Error('Request not found.');
 
-  // NEW: requesters cannot decline their own requests (any role)
+  // Requesters can’t act on their own requests
   if (String(pen.By || '').toLowerCase() === String(me.email || '').toLowerCase()) {
     throw new Error('Requesters cannot decline their own requests.');
   }
   if (String(pen.Status) !== 'Pending') {
     throw new Error('This request has already been processed (status: ' + pen.Status + ').');
   }
+
+  // 🚦 Enforce the stage gate exactly like approvePending:
+  const nextRole = String(pen.NextRole || '').trim().toLowerCase();
+  if (!nextRole) throw new Error('This request has no next approver role configured.');
+  if (nextRole === 'controller' && me.role !== 'controller') throw new Error('Controller decline required for this step.');
+  if (nextRole === 'manager'    && me.role !== 'manager')    throw new Error('Manager decline required for this step.');
 
   const user       = me.email || 'unknown';
   const stampIso   = nowISO();
@@ -1352,6 +1924,7 @@ function declinePending(pendingId, reason) {
   return { ok:true };
 }
 
+
 function backfillNextRoleOnPending() {
   const sh = sheet(SHEET_PENDING);
   ensureColumns(sh, ['Stage','NextRole','ApprovalsJSON']);  // just in case
@@ -1362,10 +1935,10 @@ function backfillNextRoleOnPending() {
       const stage = Number(r.Stage || 1);
       const type  = String(r.Type || '').toUpperCase();
       const nextRole =
-        (type === 'RECEIVE') ? 'controller' :
-        (type === 'ISSUE'   && stage === 1) ? 'manager' :
-        (type === 'ISSUE'   && stage >= 2) ? 'controller' :
-        ''; // others shouldn't be in Pending
+      (type === 'RECEIVE') ? 'controller' :
+      ((type === 'ISSUE' || type === 'REQUEST') && stage === 1) ? 'manager' :
+      ((type === 'ISSUE' || type === 'REQUEST') && stage >= 2) ? 'controller' :
+      ''; // others shouldn't be in Pending
       if (nextRole) {
         _updateByKey(sh, 'PendingID', r.PendingID, { Stage: stage || 1, NextRole: nextRole });
       }
@@ -1413,10 +1986,12 @@ function _verifyToken_(token) {
   var expected   = _sign_(payloadStr);
   if (expected !== parts[1]) throw new Error('Bad signature');
   var data = JSON.parse(payloadStr);
-  if (!data || !data.pid || !data.u || !data.a || !data.exp) throw new Error('Malformed token');
+  // Allow group tokens: u is OPTIONAL (only enforced later if present)
+  if (!data || !data.pid || !data.a || !data.exp) throw new Error('Malformed token');
   if (Date.now() > Number(data.exp)) throw new Error('Token expired');
-  return data; // { a: 'approve'|'decline', pid, u, exp }
+  return data; // { a: 'approve'|'decline', pid, u?, exp }
 }
+
 function makeActionLink_(action, pendingId, recipientEmailOpt, ttlMinutes) {
   var exp = Date.now() + (Math.max(1, ttlMinutes || (3*24*60))) * 60 * 1000; // default 3 days
   var u = recipientEmailOpt ? String(recipientEmailOpt).toLowerCase() : '';   // '' => generic (group)
@@ -1932,6 +2507,7 @@ function friendlyType(t){
     RETIRE_SKU:'Retire SKU',
     RECEIVE:'Receive (Inbound)',
     ISSUE:'Issue (Outbound)',
+    REQUEST:'Request Item',           // ⬅️ new
     USER_CREATED:'New User',
     PENDING:'Pending'
   })[t] || t;
@@ -2015,7 +2591,16 @@ function notifyPendingCreated(ctx){
     items = (p && p.items) || [];
   } catch(e){}
 
-  // Build extra items table (only when there are items array) — enriched for Desc/Category/Price
+  // If this is a single REQUEST (or ISSUE) and no items array, synthesize one for the email table
+  if ((!items || !items.length) && (String(pen.Type) === 'REQUEST' || String(pen.Type) === 'ISSUE')) {
+    items = [{
+      SKU: r.sku, Name: r.name, UoM: r.uom,
+      qty: Math.abs(Number(r.delta || 0)),
+      delta: Number(r.delta || 0)
+    }];
+  }
+
+  // Build extra items table — enriched for Desc/Category/Price
   var extra = (items && items.length) ? _formatItemsTableHtml_(items) : '';
 
   // History block (under the items table or alone)
@@ -2097,6 +2682,7 @@ function notifyApprovedEvent(type, penRow){
   const key = ({
     RECEIVE:NE.RECEIVE,
     ISSUE:NE.ISSUE,
+    REQUEST:NE.ISSUE,          // reuse same recipients as Issue
     CREATE_SKU:NE.CREATE_SKU,
     MODIFY_SKU:NE.MODIFY_SKU,
     RETIRE_SKU:NE.RETIRE_SKU
@@ -2122,13 +2708,14 @@ function notifyApprovedEvent(type, penRow){
       const totalQty   = items.reduce((a,b)=> a + Number(b.qty || 0), 0);
       const totalDelta = items.reduce((a,b)=> a + Number(b.delta || 0), 0);
       const skus       = items.map(it => String(it.SKU || '')).filter(Boolean);
+      const namesList  = items.map(it => String(it.Name || it.name || it.SKU || '')).filter(Boolean).join(', ');
       const uoms       = Array.from(new Set(items.map(it => String(it.UoM || '')).filter(Boolean)));
       const uomCell    = (uoms.length === 1) ? uoms[0] : 'mixed';
 
       rows = [
         ['Type', typeNice],
         ['SKU', safe(skus.join(', '))],
-        ['Items', `${items.length} item(s)`],
+        ['Items', safe(namesList)],                 // ← list names instead of "n item(s)"
         ['UoM', uomCell],
         ['Quantity', String(totalQty)],
         ['Δ', String(totalDelta)],
@@ -2141,6 +2728,15 @@ function notifyApprovedEvent(type, penRow){
   } catch(e){}
 
   if (!isMulti) {
+    // For REQUEST (and ISSUE) single, synthesize a one-row items table so details are tabular
+    if (String(penRow.Type) === 'REQUEST' || String(penRow.Type) === 'ISSUE') {
+      const singleItems = [{
+        SKU: penRow.SKU, Name: penRow.Name, UoM: penRow.UoM,
+        qty: Math.abs(Number(penRow.Qty || 0)),
+        delta: Number(penRow.Delta || 0)
+      }];
+      extra = _formatItemsTableHtml_(singleItems);
+    }
     // Enrich single with Description/Category/Price
     let priceRow = null, descRow = null, catRow = null;
     try {
@@ -2204,13 +2800,14 @@ function notifyRequesterResult(result, penRow){
       const totalQty   = items.reduce((a,b)=> a + Number(b.qty || 0), 0);
       const totalDelta = items.reduce((a,b)=> a + Number(b.delta || 0), 0);
       const skus       = items.map(it => String(it.SKU || '')).filter(Boolean);
+      const namesList  = items.map(it => String(it.Name || it.name || it.SKU || '')).filter(Boolean).join(', ');
       const uoms       = Array.from(new Set(items.map(it => String(it.UoM || '')).filter(Boolean)));
       const uomCell    = (uoms.length === 1) ? uoms[0] : 'mixed';
 
       rows = [
         ['Type', typeNice],
         ['SKU', safe(skus.join(', '))],
-        ['Items', `${items.length} item(s)`],
+        ['Items', safe(namesList)],                 // ← list names instead of "n item(s)"
         ['UoM', uomCell],
         ['Quantity', String(totalQty)],
         ['Δ', String(totalDelta)],
@@ -2222,7 +2819,16 @@ function notifyRequesterResult(result, penRow){
     }
   } catch(e){}
 
-  if (!isMulti) {
+   if (!isMulti) {
+    // For REQUEST (and ISSUE) single, synthesize a one-row items table so details are tabular
+    if (String(penRow.Type) === 'REQUEST' || String(penRow.Type) === 'ISSUE') {
+      const singleItems = [{
+        SKU: penRow.SKU, Name: penRow.Name, UoM: penRow.UoM,
+        qty: Math.abs(Number(penRow.Qty || 0)),
+        delta: Number(penRow.Delta || 0)
+      }];
+      extra = _formatItemsTableHtml_(singleItems);
+    }
     // Enrich single with Description/Category/Price
     let priceRow = null, descRow = null, catRow = null;
     try {
