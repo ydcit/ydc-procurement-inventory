@@ -213,8 +213,22 @@
           <div id="createAccountWrap" class="d-none">
             <h6>Create Account</h6>
             <div class="row g-3">
-              <div class="col-md-6"><label class="form-label">Name</label><input id="caName" class="form-control" placeholder="Your full name"></div>
-              <div class="col-md-6"><label class="form-label">Department</label><input id="caDept" class="form-control" placeholder="Department"></div>
+              <div class="col-md-6">
+                <label class="form-label">Name</label>
+                <input id="caName" class="form-control" placeholder="Your full name">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Business Unit</label>
+                <select id="caBU" class="form-select">
+                  <option value="" selected disabled>— Select Business Unit —</option>
+                </select>
+              </div>
+              <div class="col-md-12">
+                <label class="form-label">Department</label>
+                <select id="caDept" class="form-select">
+                  <option value="" selected disabled>— Select Department —</option>
+                </select>
+              </div>
               <div class="col-md-12">
                 <label class="form-label">Requested Role</label>
                 <select id="caRole" class="form-select">
@@ -461,7 +475,7 @@
                 <table class="table align-middle" id="tblUsersPending">
                   <thead>
                     <tr>
-                      <th>When</th><th>Name</th><th>Email</th><th>Department</th><th>Requested</th><th>Set Role</th><th class="text-end">Actions</th>
+                      <th>When</th><th>Name</th><th>Email</th><th>Business Unit</th><th>Department</th><th>Requested</th><th>Set Role</th><th class="text-end">Actions</th>
                     </tr>
                   </thead>
                   <tbody></tbody>
@@ -1323,6 +1337,20 @@
         .map(r => r.Name || r.name)
         .filter(Boolean);
     }
+
+    function populateCreateAccountBU(list){
+      const sel = document.getElementById('caBU'); if (!sel) return;
+      const keep = sel.querySelector('option[value=""]')?.outerHTML || '<option value="" selected disabled>— Select Business Unit —</option>';
+      const opts = activeNames(list).map(n => `<option value="${n}">${n}</option>`).join('');
+      sel.innerHTML = keep + opts;
+    }
+    function populateCreateAccountDept(list){
+      const sel = document.getElementById('caDept'); if (!sel) return;
+      const keep = sel.querySelector('option[value=""]')?.outerHTML || '<option value="" selected disabled>— Select Department —</option>';
+      const opts = activeNames(list).map(n => `<option value="${n}">${n}</option>`).join('');
+      sel.innerHTML = keep + opts;
+    }
+
     function populateBusinessUnitSelect(buList){
       const sel = document.getElementById('isBU'); if (!sel) return;
       const keep = sel.querySelector('option[value=""]')?.outerHTML || '<option value="" disabled selected>— Select Business Unit —</option>';
@@ -1919,7 +1947,14 @@
           const setMsg = m => { if (!silent) { try { Loader.message(m); } catch(e) {} } };
           BOOT = payload;
 
-          // Header / identity
+          const buList   = payload.businessUnits || payload.lookups?.businessUnits || [];
+          const deptList = payload.departments   || payload.lookups?.departments   || [];
+          populateCreateAccountBU(buList);
+          populateCreateAccountDept(deptList);
+          preselectIfSingle('caBU');
+          preselectIfSingle('caDept');
+
+          // Header / identity (unchanged)
           if (payload.user?.email) {
             const who = document.getElementById('whoami');
             if (who) {
@@ -1932,7 +1967,6 @@
             const chip = document.getElementById('dbChip');
             if (chip) { chip.classList.remove('d-none'); chip.textContent = payload.db.name; }
           }
-          // NEW: last sync chip
           const syncChip = document.getElementById('syncChip');
           if (syncChip && payload.serverNow) {
             const t = new Date(payload.serverNow);
@@ -1940,7 +1974,7 @@
             syncChip.textContent = `Synced ${isNaN(t) ? '' : t.toLocaleTimeString()}`;
           }
 
-          // Route: login vs app
+          // Route: login vs app (keep as-is, but now dropdowns are already filled)
           const st = payload.user?.status || 'Unknown';
           const goLogin = (panelId, allowCreate=false) => { showLogin(panelId, allowCreate); if (!silent) { try { Loader.hide(); } catch(e) {} } };
           const loginEmail = document.getElementById('loginEmail');
@@ -2054,6 +2088,8 @@
           // lookups, filters, wiring...
           populateBusinessUnitSelect(payload.businessUnits        || payload.lookups?.businessUnits        || []);
           populateDepartmentSelect  (payload.departments          || payload.lookups?.departments          || []);
+          populateCreateAccountBU  (payload.businessUnits || payload.lookups?.businessUnits || []);
+          populateCreateAccountDept(payload.departments   || payload.lookups?.departments   || []);
           populateDeployLocationSelect(payload.deploymentLocations || payload.lookups?.deploymentLocations || []);
           populateCategorySelects(payload.categories || payload.lookups?.categories || []);
 
@@ -2090,9 +2126,12 @@
     // Create Account (now with requested role)
     $('#btnCreateAccount').addEventListener('click', () => {
       const name = $('#caName').value.trim();
-      const dept = $('#caDept').value.trim();
+      const bu   = $('#caBU').value;
+      const dept = $('#caDept').value;
       const role = $('#caRole').value;
       if (!name) return toast('Please enter your name.');
+      if (!bu)   return toast('Please select a Business Unit.');
+      if (!dept) return toast('Please select a Department.');
 
       const btn = $('#btnCreateAccount');
       setLoading(btn, true, 'Submitting...');
@@ -2107,8 +2146,10 @@
           setLoading(btn, false);
           toast(e.message, 'danger');
         })
-        .requestAccount(name, dept, role);
+        // NEW 4th arg (businessUnit)
+        .requestAccount(name, dept, role, bu);
     });
+
 
     // ---- Tools menu (controller) ----
     $('#actConnect').addEventListener('click', ()=>{
@@ -2260,9 +2301,19 @@
     }
 
     function typeBadge(t){
-      const map = { CREATE_SKU:['success','Create SKU'], MODIFY_SKU:['info','Modify'], RETIRE_SKU:['secondary','Retire'], REACTIVATE_SKU:['primary','Reactivate'], RECEIVE:['success','Receive'], ISSUE:['warning','Issue'] };
-      const [c,txt] = map[t] || ['light',t]; return `<span class="badge text-bg-${c}">${txt}</span>`;
+      const map = {
+        CREATE_SKU:      ['success','Create SKU'],
+        MODIFY_SKU:      ['info','Modify'],
+        RETIRE_SKU:      ['secondary','Retire'],
+        REACTIVATE_SKU:  ['primary','Reactivate'],
+        RECEIVE:         ['success','Receive'],
+        ISSUE:           ['warning','Issue'],
+        USER_CREATION:   ['primary','User Creation']  // NEW
+      };
+      const [c,txt] = map[t] || ['light', t];
+      return `<span class="badge text-bg-${c}">${txt}</span>`;
     }
+
     function statusBadge(s){
       const map = { Pending:['secondary','Pending'], Approved:['success','Approved'], Declined:['danger','Declined'], Voided:['dark','Voided'] };
       const [c,txt] = map[s] || ['light',s]; return `<span class="badge text-bg-${c}">${txt}</span>`;
@@ -2420,29 +2471,26 @@
 
       const tr = document.createElement('tr');
       tr.innerHTML = `
-        <td>${when(u.CreatedAt)}</td>
-        <td>${u.Name || ''}</td>
-        <td>${u.Email || ''}</td>
-        <td>${u.Department || ''}</td>
-        <td>${friendlyRole(requested)}</td>
-        <td>
-          <select class="form-select form-select-sm roleSel">
-            <option value="user"${requested==='user' ? ' selected' : ''}>User (Requester)</option>
-            <option value="manager"${requested==='manager' ? ' selected' : ''}>Inventory Manager</option>
-            <option value="controller"${requested==='controller' ? ' selected' : ''}>Controller</option>
-          </select>
-        </td>
-        <td class="text-end">
-          <div class="btn-group btn-group-sm">
-            <button class="btn btn-success btn-approve-user" title="Approve">
-              <i class="fa-solid fa-check"></i>
-            </button>
-            <button class="btn btn-danger btn-disable-user" title="Disable">
-              <i class="fa-solid fa-user-slash"></i>
-            </button>
-          </div>
-        </td>
-      `;
+      <td>${when(u.CreatedAt)}</td>
+      <td>${u.Name || ''}</td>
+      <td>${u.Email || ''}</td>
+      <td>${u.BusinessUnit || ''}</td>
+      <td>${u.Department || ''}</td>
+      <td>${friendlyRole(requested)}</td>
+      <td>
+        <select class="form-select form-select-sm roleSel">
+          <option value="user"${requested==='user' ? ' selected' : ''}>User (Requester)</option>
+          <option value="manager"${requested==='manager' ? ' selected' : ''}>Inventory Manager</option>
+          <option value="controller"${requested==='controller' ? ' selected' : ''}>Controller</option>
+        </select>
+      </td>
+      <td class="text-end">
+        <div class="btn-group btn-group-sm">
+          <button class="btn btn-success btn-approve-user" title="Approve"><i class="fa-solid fa-check"></i></button>
+          <button class="btn btn-danger btn-disable-user" title="Disable"><i class="fa-solid fa-user-slash"></i></button>
+        </div>
+      </td>
+    `;
 
       const roleSel    = tr.querySelector('.roleSel');
       const approveBtn = tr.querySelector('.btn-approve-user');
@@ -2610,21 +2658,23 @@
     const items = _itemsFromRow(row);
 
     const friendly = (()=>{
-      const m = { CREATE_SKU:'Create SKU', MODIFY_SKU:'Modify Item', RETIRE_SKU:'Retire SKU', RECEIVE:'Receive (Inbound)', ISSUE:'Issue (Outbound)' };
+      const m = {
+        CREATE_SKU:'Create SKU',
+        MODIFY_SKU:'Modify Item',
+        RETIRE_SKU:'Retire SKU',
+        REACTIVATE_SKU:'Reactivate',
+        RECEIVE:'Receive (Inbound)',
+        ISSUE:'Issue (Outbound)',
+        USER_CREATION:'User Creation'   // NEW
+      };
       return m[row?.Type] || String(row?.Type||'');
     })();
 
-    // Title: prefer row.Item; else "<Type> — N item(s)"
     const title = row?.Item && !/^Batch of \d+ items$/i.test(String(row.Item))
       ? row.Item
       : `${friendly}${items.length ? ` — ${items.length} item(s)` : ''}`;
 
-    // Names for the gray subline
-    let names = [...new Set(
-      items.map(it => (it.name || '').trim()).filter(Boolean)
-    )];
-
-    // ✅ Only for CREATE, drop accidental "Create SKU — ..." as a name and de-dupe with title
+    let names = [...new Set(items.map(it => (it.name || '').trim()).filter(Boolean))];
     if (row?.Type === 'CREATE_SKU') {
       names = names
         .filter(n => !/^create\s+sku\b/i.test(n))
@@ -2634,6 +2684,7 @@
     const below = names.length ? `<div class="small text-secondary">${names.join(', ')}</div>` : '';
     return `<div>${title || '—'}</div>${below}`;
   }
+
 
 
 
@@ -2752,7 +2803,16 @@
       frag.querySelector('.name').innerHTML     = buildLedgerItemCell(l);
       frag.querySelector('.delta').innerHTML    = qtyBadge(l.Delta);
       frag.querySelector('.uom').textContent    = l.UoM || '';
-      frag.querySelector('.status').innerHTML   = statusBadge(l.Status);
+      // Show USER_CREATION as Pending while the user is still in the pending user list
+      let dispStatus = l.Status;
+      if (l.Type === 'USER_CREATION') {
+        const pendingUsers = (BOOT?.usersPending) || [];
+        const stillPending = pendingUsers.some(u =>
+          String(u.Email || '').toLowerCase() === String(l.By || '').toLowerCase()
+        );
+        if (stillPending) dispStatus = 'Pending';
+      }
+      frag.querySelector('.status').innerHTML = statusBadge(dispStatus);
       frag.querySelector('.by').textContent     = l.By || '';
       frag.querySelector('.note').innerHTML     = buildLedgerNoteCell(l);
 
@@ -3311,6 +3371,13 @@
     }
 
     // -------- Helpers --------
+    function preselectIfSingle(selectId){
+      const sel = document.getElementById(selectId);
+      if (!sel) return;
+      const options = Array.from(sel.options).filter(o => o.value && !o.disabled);
+      if (options.length === 1) sel.value = options[0].value;
+    }
+
     function openPriceHistory(sku){
       const it = (BOOT.items||[]).find(x => String(x.SKU)===String(sku));
       const body = document.getElementById('priceHistoryBody');

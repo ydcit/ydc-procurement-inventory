@@ -66,7 +66,7 @@ function ensureColumns(sh, required) {
 }
 function ensureSheets(ss) {
   const want = {
-    [SHEET_USERS]:        ['UserID','Email','Name','Department','RequestedRole','Role','Status','CreatedAt'],
+    [SHEET_USERS]:        ['UserID','Email','Name','Department','RequestedRole','Role','Status','CreatedAt','BusinessUnit'],
     [SHEET_ITEMS]:        ['SKU','Name','Description','Category','UoM','Location','Qty','Status','CreatedAt','UpdatedAt','UnitPrice'],
     [SHEET_PENDING]:      ['PendingID','LinkID','When','Type','SKU','Details','Name','UoM','Qty','Delta','Reason','Note','By','Status','ReviewedAt','ReviewedBy','PayloadJSON','Stage','NextRole','ApprovalsJSON'], 
     [SHEET_LEDGER]:       ['ID','When','Type','SKU','Item','Delta','UoM','Status','By','ReviewedAt','ReviewedBy','Note','ApprovalsJSON'],    
@@ -127,6 +127,33 @@ function getSpreadsheetInfo() {
 }
 
 /* ---------------- Helpers ---------------- */
+function recordUserCreationLedger(info){
+  const led = sheet(SHEET_LEDGER);
+  const linkId = nextTrxId();
+  const details = [
+    'UserID: ' + (info.userId || '—'),
+    'Name: ' + safe(info.name),
+    'Email: ' + safe(info.email),
+    'Department: ' + safe(info.department),
+    'Business Unit: ' + safe(info.businessUnit),
+    'Requested Role: ' + safe(info.requestedRole)
+  ].join(' | ');
+
+  _append(led, {
+    ID: linkId,
+    When: info.when || nowISO(),
+    Type: 'USER_CREATION',
+    SKU: '',
+    Item: 'User Creation',
+    Delta: 0,
+    UoM: '',
+    Status: 'Approved',
+    By: info.email || '',
+    Note: details
+  });
+}
+
+
 function getLiveUserData() {
   // Minimal payload for periodic refresh (fast + cheap)
   return {
@@ -599,13 +626,12 @@ function getCurrentUser() {
   if (!u) return { email, status:'Unknown' };
   return { email, name:u.Name, department:u.Department, requestedRole:u.RequestedRole, role:u.Role, status:u.Status, userId:u.UserID };
 }
-function requestAccount(name, department, requestedRole) {
+function requestAccount(name, department, requestedRole, businessUnitOpt) {
   const email = getActiveEmail();
   if (!email) throw new Error('No signed-in Google account detected.');
 
   const sh = sheet(SHEET_USERS);
-  // Make sure the column exists (adds if missing)
-  ensureColumns(sh, ['UserID','Email','Name','Department','RequestedRole','Role','Status','CreatedAt']);
+  ensureColumns(sh, ['UserID','Email','Name','Department','RequestedRole','Role','Status','CreatedAt','BusinessUnit']);
 
   const existing = _readObjects(sh).find(r => String(r.Email).toLowerCase() === String(email).toLowerCase());
   if (existing) {
@@ -613,6 +639,9 @@ function requestAccount(name, department, requestedRole) {
   }
 
   const uid = 'USR-' + pad(nextCounter(P_USER), 5);
+  const createdAt = nowISO();
+  const bu = (typeof businessUnitOpt === 'string') ? businessUnitOpt : '';
+
   _append(sh, {
     UserID: uid,
     Email: email,
@@ -621,12 +650,26 @@ function requestAccount(name, department, requestedRole) {
     RequestedRole: requestedRole || 'user',
     Role: 'user',
     Status: 'Pending',
-    CreatedAt: nowISO() // <-- this drives the “When” column in the UI
+    CreatedAt: createdAt,
+    BusinessUnit: bu || ''
   });
 
-  notifyUserCreated({ email, name, department, requestedRole });
+  // Ledger audit
+  recordUserCreationLedger({
+    userId: uid,
+    email,
+    name: name || email,
+    department: department || '',
+    businessUnit: bu || '',
+    requestedRole: requestedRole || 'user',
+    when: createdAt
+  });
+
+  notifyUserCreated({ email, name, department, businessUnit: bu, requestedRole });
   return { ok:true, message:'Account request submitted. Wait for Controller approval.' };
 }
+
+
 function listUsers() {
   const me = getCurrentUser();
   if (me.role !== 'controller' || me.status !== 'Active') return [];
@@ -731,7 +774,7 @@ function getMyActivity() {
 
 
 function getBootstrap() {
-  // Make columns E..H = RequestedRole, Role, Status, CreatedAt
+  // Make columns E..I = RequestedRole, Role, Status, CreatedAt, BusinessUnit
   normalizeUsersSheet();
   ensureUsersTimestampColumnAndBackfill();
 
@@ -744,12 +787,15 @@ function getBootstrap() {
 
   const my = getMyActivity();
 
+  // Lookup sheets are guaranteed by ensureSheets(); return Active-only for dropdowns
   let businessUnits = [], departments = [], deploymentLocations = [], categories = [];
-  try { businessUnits = _readObjects(sheet(SHEET_BUS_UNITS)); } catch(e){}
-  try { departments   = _readObjects(sheet(SHEET_DEPTS)); } catch(e){}
-  try { deploymentLocations  = _readObjects(sheet(SHEET_DEPLOY_LOCS)); } catch(e){}
-  try { categories    = _readObjects(sheet(SHEET_CATEGORIES)); } catch(e){} 
-  // Enrich items with price history + rollups
+  try { businessUnits = _readObjects(sheet(SHEET_BUS_UNITS)).filter(r => String(r.Active).toLowerCase() !== 'false' && String(r.Active).toLowerCase() !== '0'); } catch(e){}
+  try { departments   = _readObjects(sheet(SHEET_DEPTS)).filter(r => String(r.Active).toLowerCase() !== 'false' && String(r.Active).toLowerCase() !== '0'); } catch(e){}
+  try { deploymentLocations  = _readObjects(sheet(SHEET_DEPLOY_LOCS)).filter(r => String(r.Active).toLowerCase() !== 'false' && String(r.Active).toLowerCase() !== '0'); } catch(e){}
+  try { categories    = _readObjects(sheet(SHEET_CATEGORIES)).filter(r => String(r.Active).toLowerCase() !== 'false' && String(r.Active).toLowerCase() !== '0'); } catch(e){} 
+
+  // Enrich items ...
+
   let items = getItems();
   let priceMap = {};
   try { priceMap = getPriceHistoryMap_(); } catch(e){ priceMap = {}; }
@@ -2699,11 +2745,13 @@ function friendlyType(t){
     RETIRE_SKU:'Retire SKU',
     RECEIVE:'Receive (Inbound)',
     ISSUE:'Issue (Outbound)',
-    REQUEST:'Request Item',           // ⬅️ new
+    REQUEST:'Request Item',
+    USER_CREATION:'User Creation',   // added
     USER_CREATED:'New User',
     PENDING:'Pending'
   })[t] || t;
 }
+
 
 /* ---------- Email UI (centered card) ---------- */
 function cardEmail(title, rows, opts) {
@@ -3071,9 +3119,6 @@ function notifyRequesterResult(result, penRow){
   sendMailSafe(to, `[${result}] ${typeNice} ${penRow.SKU || ''}`.trim(), html, []);
 }
 
-
-
-
 function notifyUserCreated(u){
   const { to, cc } = resolveRecipients(NE.USER_CREATED, { includeControllers:true });
   if (!to.length) return;
@@ -3083,12 +3128,14 @@ function notifyUserCreated(u){
       ['Email', safe(u.email)],
       ['Name', safe(u.name)],
       ['Department', safe(u.department)],
+      ['Business Unit', safe(u.businessUnit)],   // added
       ['Requested Role', safe(u.requestedRole || 'user')]
     ],
     { subtitle:'A new user is requesting access.' }
   );
   sendMailSafe(to, `[New User] ${u.name || u.email}`, html, cc);
 }
+
 
 /* ---------- Low Stock ---------- */
 function getLowStockThreshold() {
@@ -3441,24 +3488,44 @@ function nightlyMaintenance(){
   return { ok:true, backup, arch };
 }
 
-// Force Users sheet to canonical order and preserve data by header name.
-// Final: A..H = UserID, Email, Name, Department, RequestedRole, Role, Status, CreatedAt
 function normalizeUsersSheet(){
   const sh = sheet(SHEET_USERS);
-  const WANT = ['UserID','Email','Name','Department','RequestedRole','Role','Status','CreatedAt'];
+
+  // Canonical columns — BusinessUnit added as I
+  const WANT = ['UserID','Email','Name','Department','RequestedRole','Role','Status','CreatedAt','BusinessUnit'];
 
   const lastRow = Math.max(1, sh.getLastRow());
   const lastCol = Math.max(1, sh.getLastColumn());
-  const vals = sh.getRange(1, 1, lastRow, lastCol).getValues();
+  const range = sh.getRange(1, 1, lastRow, lastCol);
+  const vals = range.getValues();
+  const formulas = range.getFormulas();
 
   if (vals.length === 0) { sh.appendRow(WANT); return; }
 
-  const hdrIn  = (vals[0] || []).map(h => String(h||'').trim());
+  // Accept legacy header aliases
+  const alias = {'Created At':'CreatedAt','Requested Role':'RequestedRole','Business Unit':'BusinessUnit'};
+  const hdrIn  = (vals[0] || []).map(h => alias[String(h||'').trim()] || String(h||'').trim());
   const rowsIn = vals.slice(1);
   const idx = Object.fromEntries(hdrIn.map((h,i)=>[h,i]));
 
+  // Build output rows in canonical order and freeze CreatedAt values
   const out = [WANT];
-  rowsIn.forEach(r => out.push(WANT.map(h => (idx[h] != null) ? r[idx[h]] : '')));
+  rowsIn.forEach((r, ri) => {
+    const rowObj = {};
+    WANT.forEach(h => { rowObj[h] = (idx[h] != null) ? r[idx[h]] : ''; });
+
+    // Stabilize CreatedAt: overwrite formula to its current value OR backfill if blank
+    if (idx['CreatedAt'] != null) {
+      const cIdx = idx['CreatedAt'];
+      const wasFormula = (formulas[ri+1] && formulas[ri+1][cIdx]); // +1 offset for header
+      if (wasFormula && !rowObj['CreatedAt']) rowObj['CreatedAt'] = r[cIdx];          // value-at-time
+      if (!rowObj['CreatedAt']) rowObj['CreatedAt'] = nowISO();                       // backfill blank
+    } else {
+      rowObj['CreatedAt'] = rowObj['CreatedAt'] || nowISO();
+    }
+
+    out.push(WANT.map(h => rowObj[h]));
+  });
 
   // Rewrite in correct order
   if (sh.getMaxColumns() < WANT.length) {
@@ -3471,3 +3538,4 @@ function normalizeUsersSheet(){
   const extra = sh.getLastColumn() - WANT.length;
   if (extra > 0) sh.deleteColumns(WANT.length + 1, extra);
 }
+
