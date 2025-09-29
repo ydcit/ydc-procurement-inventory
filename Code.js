@@ -1177,6 +1177,198 @@ function queuePendingMulti(rec) {
 
 
 /* ---------------- Actions ---------------- */
+// === Requester-only edit/cancel (Pending only), aligned to existing flow ===
+
+function _requesterOwnsPending_(pen) {
+  const me = getCurrentUser();
+  return !!(me.email && me.status === 'Active' &&
+            String(pen.By || '').toLowerCase() === String(me.email).toLowerCase() &&
+            String(pen.Status) === 'Pending');
+}
+
+function _firstApproverRole_(type, requesterRole){
+  type = String(type||'').toUpperCase();
+  const r = String(requesterRole||'').toLowerCase();
+  if (type === 'RECEIVE') return 'controller';
+  if (type === 'ISSUE' || type === 'REQUEST') return (r === 'manager' ? 'controller' : 'manager');
+  return '';
+}
+
+/**
+ * Lightweight read model for editing a pending request (requester-only, Pending only).
+ * Returns { ok, pendingId, model:{ type, reason, note, meta, items[] } }
+ */
+function getPendingForEdit(pendingId){
+  const pen = _findBy(sheet(SHEET_PENDING), 'PendingID', pendingId);
+  if (!pen) throw new Error('Request not found.');
+  if (!_requesterOwnsPending_(pen)) throw new Error('Only the requester can edit while status is Pending.');
+
+  let payload = {};
+  try { payload = pen.PayloadJSON ? JSON.parse(pen.PayloadJSON) : {}; } catch(e){}
+
+  const items = Array.isArray(payload.items) && payload.items.length
+    ? payload.items
+    : (pen.SKU ? [{
+        SKU: pen.SKU, Name: pen.Name, UoM: pen.UoM,
+        qty: Math.abs(Number(pen.Qty||0)),
+        delta: Number(pen.Delta||0)
+      }] : []);
+
+  return {
+    ok:true,
+    pendingId,
+    model: {
+      type: pen.Type,
+      reason: payload.reason ?? pen.Reason ?? '',
+      note: payload.note ?? '',
+      meta: payload.meta ?? null,
+      items
+    }
+  };
+}
+
+/**
+ * Submit an edit: voids old Pending, stamps Ledger "Edited #N",
+ * creates a fresh Pending at Stage=1, NextRole reset, ApprovalsJSON=[],
+ * and assigns a new PendingID by appending " (N)".
+ */
+function submitEditPending(pendingId, edited){
+  const pen = _findBy(sheet(SHEET_PENDING), 'PendingID', pendingId);
+  if (!pen) throw new Error('Request not found.');
+  if (!_requesterOwnsPending_(pen)) throw new Error('Only the requester can edit while status is Pending.');
+
+  const me = getCurrentUser();
+  const type = String(pen.Type).toUpperCase();
+
+  // Normalize incoming model
+  const model  = edited && typeof edited === 'object' ? edited : {};
+  const items  = Array.isArray(model.items) ? model.items : [];
+  const reason = (model.reason ?? pen.Reason ?? '').toString();
+  const note   = (model.note ?? '').toString();
+  const meta   = model.meta ?? null;
+
+  // 1) Void old Pending (audit kept)
+  const stampIso = nowISO();
+  const voidStamp = stamp_('Voided', me.email, ' — Edited & resubmitted');
+  _updateByKey(sheet(SHEET_PENDING), 'PendingID', pendingId, {
+    Status: 'Voided',
+    ReviewedAt: stampIso,
+    ReviewedBy: me.email,
+    Note: appendNoteUnique_(pen.Note || '', voidStamp)
+  });
+
+  // 2) Stamp Ledger as "Edited #N"
+  const led = _findBy(sheet(SHEET_LEDGER), 'ID', pen.LinkID);
+  const siblings = _readObjects(sheet(SHEET_PENDING)).filter(r => String(r.LinkID) === String(pen.LinkID));
+  const editSeq = siblings.length + 1;
+  if (led) {
+    _updateByKey(sheet(SHEET_LEDGER), 'ID', pen.LinkID, {
+      Note: appendNoteUnique_(led.Note || '', `[Edited #${editSeq} by ${me.email} @ ${new Date().toLocaleString()}]`)
+    });
+  }
+
+  // 3) Create fresh Pending row with reset flow
+  const firstRole = _firstApproverRole_(type, me.role);
+
+  const summarized = _summarizeMulti_(
+    type,
+    items.length ? items : [{
+      SKU: pen.SKU, Name: pen.Name, UoM: pen.UoM,
+      qty: Math.abs(Number(pen.Qty||0)), delta: Number(pen.Delta||0)
+    }],
+    note
+  );
+
+  const submitStamp = stamp_('Submitted', me.email, '');
+  const newNote = appendNoteUnique_(
+    [
+      summarized.listText,
+      (reason ? 'Reason: ' + reason : ''),
+      (note ? 'Remarks: ' + note : '')
+    ].filter(Boolean).join('\n'),
+    submitStamp
+  );
+  const newDetails = [
+    summarized.listText.replace(/\n/g,' | '),
+    (reason ? 'Reason: ' + reason : ''),
+    (note ? 'Remarks: ' + note : ''),
+    submitStamp
+  ].filter(Boolean).join(' | ');
+
+  const skuCsv = items.length ? items.map(i => String(i.SKU||'').trim()).filter(Boolean).join(', ') : (pen.SKU || '');
+  const totalDelta = items.length ? items.reduce((a,b)=> a + Number(b.delta||0), 0) : Number(pen.Delta||0);
+  const uoms = items.length ? Array.from(new Set(items.map(i => String(i.UoM||'').trim()).filter(Boolean))) : (pen.UoM ? [pen.UoM] : []);
+  const uomCell = uoms.length === 0 ? (pen.UoM || '') : (uoms.length === 1 ? uoms[0] : 'mixed');
+
+  const basePid = String(pen.PendingID).replace(/\s*\(\d+\)\s*$/, '');
+  const newPendingId = `${basePid} (${editSeq})`;
+
+  _append(sheet(SHEET_PENDING), {
+    PendingID: newPendingId,
+    LinkID: pen.LinkID,                // keep the same ledger link
+    When: nowISO(),
+    Type: type,
+    SKU: skuCsv,
+    Details: newDetails,
+    Name: summarized.title,
+    UoM: uomCell,
+    Qty: '',
+    Delta: totalDelta,
+    Reason: reason,
+    Note: newNote,
+    By: me.email,
+    Status: 'Pending',
+    PayloadJSON: JSON.stringify({ type, items, reason, note, meta }),
+    Stage: 1,
+    NextRole: firstRole,
+    ApprovalsJSON: JSON.stringify([])
+  });
+
+  // notify first approver group again
+  notifyPendingCreated({
+    linkId: pen.LinkID,
+    pendingId: newPendingId,
+    rec: { type, sku: skuCsv, name: summarized.title, uom: uomCell, delta: totalDelta, note: newNote },
+    by: me.email
+  });
+
+  return { ok:true, pendingId: newPendingId, linkId: pen.LinkID };
+}
+
+/** Requester-only cancel (void) their own Pending */
+function cancelMyPending(pendingId, reason){
+  const pen = _findBy(sheet(SHEET_PENDING), 'PendingID', pendingId);
+  if (!pen) throw new Error('Request not found.');
+  if (!_requesterOwnsPending_(pen)) throw new Error('Only the requester can cancel while status is Pending.');
+
+  const me = getCurrentUser();
+  const why = String(reason || 'Cancelled by requester').trim();
+  const stampIso = nowISO();
+  const cancelStamp = stamp_('Voided', me.email, ' — Reason: ' + why);
+
+  _updateByKey(sheet(SHEET_PENDING), 'PendingID', pendingId, {
+    Status: 'Voided',
+    Reason: why,
+    ReviewedAt: stampIso,
+    ReviewedBy: me.email,
+    Note: appendNoteUnique_(pen.Note || '', cancelStamp)
+  });
+
+  const led = _findBy(sheet(SHEET_LEDGER), 'ID', pen.LinkID);
+  if (led) {
+    _updateByKey(sheet(SHEET_LEDGER), 'ID', pen.LinkID, {
+      Status: 'Voided',
+      ReviewedAt: stampIso,
+      ReviewedBy: me.email,
+      Note: appendNoteUnique_(led.Note || '', cancelStamp)
+    });
+  }
+
+  const updated = _findBy(sheet(SHEET_PENDING), 'PendingID', pendingId);
+  notifyRequesterResult('Voided', updated);
+  return { ok:true };
+}
+
 // Helper: look up current user's employee details from Users sheet
 function getCurrentEmployee_() {
   var email = (Session.getActiveUser() && Session.getActiveUser().getEmail()) || '';
@@ -2773,18 +2965,32 @@ function notifyApprovedEvent(type, penRow){
 }
 
 
-
-// Requester result (Approved/Declined)
+// Requester result (Approved/Declined/Voided) — subtitle reflects who acted
 function notifyRequesterResult(result, penRow){
   const to = (penRow.By && /@/.test(penRow.By)) ? [penRow.By] : [];
   if (!to.length) return;
 
   const typeNice = friendlyType(penRow.Type);
-  const subtitle =
+
+  // Work out who performed the final action (for "Voided" phrasing)
+  const actorEmail = String(penRow.ReviewedBy || '').trim();
+  const requesterEmail = String(penRow.By || '').trim();
+  const isSelfAction = actorEmail && requesterEmail &&
+    actorEmail.toLowerCase() === requesterEmail.toLowerCase();
+  const actorRole = actorEmail ? getRoleByEmail(actorEmail) : '';
+
+  let subtitle =
     result === 'Approved' ? 'Your request has been approved.' :
     result === 'Declined' ? 'Your request has been declined.' :
-    result === 'Voided'   ? 'Your request was voided (removed from the queue) by a controller.' :
-    '';
+    result === 'Voided'
+      ? (isSelfAction
+          ? 'You canceled this request.'
+          : (actorRole === 'controller'
+              ? 'Your request was voided (removed from the queue) by a controller.'
+              : (actorRole === 'manager'
+                  ? 'Your request was voided (removed from the queue) by a manager.'
+                  : 'Your request was voided (removed from the queue).')))
+      : '';
 
   let isMulti = false;
   let extra = '';
@@ -2807,7 +3013,7 @@ function notifyRequesterResult(result, penRow){
       rows = [
         ['Type', typeNice],
         ['SKU', safe(skus.join(', '))],
-        ['Items', safe(namesList)],                 // ← list names instead of "n item(s)"
+        ['Items', safe(namesList)],
         ['UoM', uomCell],
         ['Quantity', String(totalQty)],
         ['Δ', String(totalDelta)],
@@ -2819,8 +3025,8 @@ function notifyRequesterResult(result, penRow){
     }
   } catch(e){}
 
-   if (!isMulti) {
-    // For REQUEST (and ISSUE) single, synthesize a one-row items table so details are tabular
+  if (!isMulti) {
+    // For REQUEST/ISSUE single, synthesize a one-row items table so details are tabular
     if (String(penRow.Type) === 'REQUEST' || String(penRow.Type) === 'ISSUE') {
       const singleItems = [{
         SKU: penRow.SKU, Name: penRow.Name, UoM: penRow.UoM,
@@ -2864,6 +3070,7 @@ function notifyRequesterResult(result, penRow){
   const html = cardEmail(`${result} — ${typeNice}`, rows, { subtitle, extraBelow: extraWithHistory });
   sendMailSafe(to, `[${result}] ${typeNice} ${penRow.SKU || ''}`.trim(), html, []);
 }
+
 
 
 

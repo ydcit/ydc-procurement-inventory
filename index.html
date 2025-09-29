@@ -982,26 +982,100 @@
   </div>
 
 
-<!-- Price Histotry -->
+  <!-- Price Histotry -->
 
-<div class="modal fade" id="modalPriceHistory" tabindex="-1">
-  <div class="modal-dialog modal-md modal-dialog-centered">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title"><i class="fa-solid fa-tags me-2"></i>Price History</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        <div id="priceHistoryBody" class="small">No price history.</div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-light-alt" data-bs-dismiss="modal">Close</button>
+  <div class="modal fade" id="modalPriceHistory" tabindex="-1">
+    <div class="modal-dialog modal-md modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="fa-solid fa-tags me-2"></i>Price History</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div id="priceHistoryBody" class="small">No price history.</div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-light-alt" data-bs-dismiss="modal">Close</button>
+        </div>
       </div>
     </div>
   </div>
-</div>
 
+  <!-- Edit Request (no "Select Items" button) -->
+  <div class="modal fade" id="modalEditMyReq" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+      <form class="modal-content" id="formEditRequest">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="fa-solid fa-pen-to-square me-2"></i>Edit Request</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
 
+        <div class="modal-body">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <div class="small text-secondary">
+              You can adjust quantities or remove items. Adding new items isn’t available here.
+            </div>
+          </div>
+
+          <!-- Cart / summary table -->
+          <div id="edCartWrap" class="border rounded p-2">
+            <div class="table-responsive">
+              <table class="table table-sm align-middle mb-0" id="edCartTable">
+                <thead>
+                  <tr>
+                    <th style="width:140px">SKU</th>
+                    <th>Item</th>
+                    <th>Item Description</th>
+                    <th style="width:90px">UoM</th>
+                    <th style="width:120px" class="text-end">On-hand</th>
+                    <th style="width:160px" class="text-end">Qty to Request</th>
+                    <th style="width:60px" class="text-end"></th>
+                  </tr>
+                </thead>
+                <tbody id="edCartBody"><!-- rows injected --></tbody>
+              </table>
+            </div>
+            <div class="small text-secondary mt-2" id="edCartMeta">No items selected.</div>
+          </div>
+
+          <div class="mt-3">
+            <label class="form-label">Reason / Purpose</label>
+            <textarea id="edReason" class="form-control" rows="2" placeholder="Brief justification" required></textarea>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button class="btn btn-light-alt" type="button" data-bs-dismiss="modal">Close</button>
+          <button class="btn btn-primary" type="submit" id="edSubmitBtn">
+            <i class="fa-solid fa-paper-plane me-1"></i>Save & Resubmit
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Cancel My Request -->
+  <div class="modal fade" id="modalCancelMyReq" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-md modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="fa-solid fa-ban me-2"></i>Cancel Request</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-2 text-secondary">This will void your current Pending request.</div>
+          <label class="form-label">Reason (optional)</label>
+          <textarea id="myCancelReason" class="form-control" rows="2" placeholder="Reason for cancellation"></textarea>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-light-alt" data-bs-dismiss="modal">Close</button>
+          <button class="btn btn-light-alt" id="myCancelGo">
+            <i class="fa-solid fa-ban me-1"></i>Confirm Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- Templates -->
   <template id="tplStockRow">
@@ -1048,13 +1122,13 @@
       <td class="current-approver text-end"></td>
       <td class="text-end">
         <div class="btn-group btn-group-sm">
-          <button class="btn btn-light-alt btn-view-req" title="View"><i class="fa-solid fa-eye"></i></button>
+          <button class="btn btn-light-alt btn-view-req"   title="View"><i class="fa-solid fa-eye"></i></button>
+          <button class="btn btn-light-alt btn-edit-req"   title="Edit (while Pending)"><i class="fa-solid fa-pen-to-square"></i></button>
+          <button class="btn btn-light-alt btn-cancel-req" title="Cancel (void)"><i class="fa-solid fa-ban"></i></button>
         </div>
       </td>
     </tr>
   </template>
-
-
 
   <template id="tplLedgerRow">
     <tr>
@@ -2289,8 +2363,9 @@
       const yes = document.getElementById('confirmYes');
       if (yes){
         if (action === 'void'){
-          yes.className = 'btn btn-outline-secondary';
-          yes.innerHTML = `<i class="fa-solid fa-trash me-1"></i>Confirm Void`;
+          // neutral, no aggressive color for user cancel
+          yes.className = 'btn btn-light-alt';
+          yes.innerHTML = `<i class="fa-solid fa-check me-1"></i>Confirm Cancel`;
         } else {
           yes.className = 'btn btn-danger';
           yes.innerHTML = `<i class="fa-solid fa-xmark me-1"></i>Confirm Decline`;
@@ -2751,18 +2826,157 @@
       bootstrap.Modal.getOrCreateInstance('#modalMyReq').show();
     }
 
+    // === Requester edit/cancel helpers ===
+    function isPendingRow(rec){ return String(rec.Status) === 'Pending'; }
+    function pendingIdOf(rec){ return rec.RecordID || rec.PendingID || rec.recid || rec.ID || ''; }
+
+    let MY_EDIT_CTX = { pendingId: '', model: null };
+    const EDIT_CART = new Map(); // sku -> { sku, name, desc, uom, onhand, qty }
+
+    function edRenderCart(){
+      const tb   = document.getElementById('edCartBody');
+      const meta = document.getElementById('edCartMeta');
+      if (!tb || !meta) return;
+
+      tb.innerHTML = '';
+      const items = Array.from(EDIT_CART.values());
+      if (!items.length){
+        meta.textContent = 'No items selected.';
+        return;
+      }
+      meta.textContent = `${items.length} item(s) selected.`;
+
+      items.forEach(it => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${it.sku}</td>
+          <td>${it.name || ''}</td>
+          <td>${it.desc || ''}</td>
+          <td>${it.uom  || ''}</td>
+          <td class="text-end">${fmt(it.onhand ?? 0)}</td>
+          <td class="text-end">
+            <div class="input-group input-group-sm">
+              <input type="number" min="1" step="1" class="form-control text-end qty-inp" value="${Number(it.qty||1)}">
+            </div>
+          </td>
+          <td class="text-end">
+            <button class="btn btn-outline-danger btn-sm rm" type="button"><i class="fa-solid fa-trash-can"></i></button>
+          </td>
+        `;
+        tr.querySelector('.qty-inp').addEventListener('input', (e)=>{
+          let v = parseInt(e.target.value, 10);
+          if (isNaN(v) || v < 1) v = 1;
+          e.target.value = v;
+          const cur = EDIT_CART.get(it.sku);
+          if (cur){ cur.qty = v; }
+        });
+        tr.querySelector('.rm').addEventListener('click', ()=>{
+          EDIT_CART.delete(it.sku);
+          edRenderCart();
+        });
+        tb.appendChild(tr);
+      });
+    }
+
+    /* Open Edit modal for a given PendingID */
+    function openEditMyReq(pendingId){
+      MY_EDIT_CTX = { pendingId, model: null };
+      EDIT_CART.clear();
+      edRenderCart();
+      document.getElementById('edReason').value = '';
+
+      bootstrap.Modal.getOrCreateInstance('#modalEditMyReq').show();
+
+      // Load current request to seed cart + reason
+      google.script.run
+        .withSuccessHandler(res => {
+          const mdl = res?.model || {};
+          MY_EDIT_CTX.model = mdl;
+          document.getElementById('edReason').value = mdl.reason || '';
+
+          const items = Array.isArray(mdl.items) ? mdl.items : [];
+          items.forEach(line => {
+            const sku = line.SKU || line.sku;
+            if (!sku) return;
+            const it  = lookupSku(sku) || {};
+            EDIT_CART.set(sku, {
+              sku,
+              name: it.Name || line.Name || line.name || '',
+              desc: it.Description || it.ItemDescription || '',
+              uom:  it.UoM || line.UoM || line.uom || '',
+              onhand: it.Qty ?? 0,
+              qty: Math.max(1, parseInt(line.qty || line.Qty || 1, 10))
+            });
+          });
+          edRenderCart();
+        })
+        .withFailureHandler(e => {
+          toast({ title:'Load failed', message: (e?.message || String(e)), type:'danger' });
+        })
+        .getPendingForEdit(pendingId);
+    }
+
+    /* Submit edited request */
+    document.getElementById('formEditRequest')?.addEventListener('submit', (ev)=>{
+      ev.preventDefault();
+      const btn = document.getElementById('edSubmitBtn');
+      const reason = document.getElementById('edReason')?.value.trim() || '';
+      const items  = Array.from(EDIT_CART.values()).map(it => ({
+        SKU: it.sku, Name: it.name, UoM: it.uom, qty: Number(it.qty||1)
+      }));
+
+      if (!items.length){
+        toast({ message:'Nothing to submit. Remove/adjust items only; adding new items isn’t available here.', type:'warning' });
+        return;
+      }
+
+      setLoading(btn, true, 'Saving…');
+      google.script.run
+        .withSuccessHandler(res => {
+          setLoading(btn, false);
+          bootstrap.Modal.getInstance(document.getElementById('modalEditMyReq'))?.hide();
+          toast({ title:'Edited & Resubmitted', message:`Pending ID: ${res?.pendingId || ''}`, type:'success' });
+          loadApp({ silent:true });
+        })
+        .withFailureHandler(e => {
+          setLoading(btn, false);
+          toast({ title:'Save failed', message:(e?.message || String(e)), type:'danger' });
+        })
+        .submitEditPending(MY_EDIT_CTX.pendingId, { reason, items });
+    });
+
+    function openCancelMyReq(pendingId){
+      const reasonEl = document.getElementById('myCancelReason');
+      if (reasonEl) reasonEl.value = ''; // no default text
+
+      document.getElementById('myCancelGo').onclick = function(){
+        const btn = this;
+        const why = (reasonEl?.value || '').trim(); // optional
+
+        setLoading(btn, true, 'Cancelling…');
+        google.script.run
+          .withSuccessHandler(()=>{
+            setLoading(btn, false);
+            bootstrap.Modal.getInstance(document.getElementById('modalCancelMyReq'))?.hide();
+            toast({ title:'Cancelled', message:'Your request has been cancelled.', type:'warning' });
+            loadApp({ silent:true });
+          })
+          .withFailureHandler(e=>{
+            setLoading(btn, false);
+            toast({ title:'Cancel failed', message:(e?.message || String(e)), type:'danger' });
+          })
+          .cancelMyPending(pendingId, why);
+      };
+
+      bootstrap.Modal.getOrCreateInstance('#modalCancelMyReq').show();
+    }
+
     function renderMine(minePending){
       // Only show ISSUE requests from the Pending sheet
       const rows = (minePending || [])
       .filter(p => p.Type === 'ISSUE')
       .map(p => {
-        const items = extractItemsFromPayload(p); // [{sku,name,qty,uom}, ...]
-
-        // Build a reliable label for the table cell:
-        // 1) If we have parsed items:
-        //    - 1 item  → show its name (or SKU if name missing)
-        //    - >1 items→ "FirstName + N more" (fallbacks to SKU if name missing)
-        // 2) Else fallback to p.Name, then SKU, then a generic "Batch of N items"
+        const items = extractItemsFromPayload(p);
         let itemLabel = '';
         if (items && items.length) {
           const first = items[0] || {};
@@ -2787,14 +3001,15 @@
           When: p.When,
           Status: p.Status,
           SKU: p.SKU,
-          Item: itemLabel,       // <-- always populated now
-          Items: items,          // full list for the modal
+          Item: itemLabel,
+          Items: items,
           Qty: (p.Qty !== '' && p.Qty != null) ? p.Qty : p.Delta,
           UoM: p.UoM,
           Note: p.Note,
           Reason: p.Reason,
           RecordID: p.PendingID,
-          NextRole: (p.NextRole || p.nextRole || '')
+          NextRole: (p.NextRole || p.nextRole || ''),
+          _raw: p
         };
       })
       .sort((a,b) => new Date(b.When) - new Date(a.When));
@@ -2822,24 +3037,37 @@
         frag.querySelector('.when').textContent   = when(rec.When);
         frag.querySelector('.status').innerHTML   = statusBadge(rec.Status);
         frag.querySelector('.sku').textContent    = rec.SKU || '';
-        frag.querySelector('.name').textContent   = rec.Item || ''; // now reliably filled
+        frag.querySelector('.name').textContent   = rec.Item || '';
         frag.querySelector('.qty').textContent    = (rec.Qty === '' || rec.Qty == null) ? '—' : fmt(rec.Qty);
         frag.querySelector('.uom').textContent    = rec.UoM || '';
         frag.querySelector('.recid').textContent  = rec.RecordID || '';
 
-        // Current Approver (nice label)
         const roleNice = r => {
           const v = String(r || '').toLowerCase();
           if (v === 'manager') return 'Managers';
           if (v === 'controller') return 'Controllers';
           return r || '—';
         };
-
-        // Only show role while Pending; otherwise "—"
         const curr = (rec.Status === 'Pending') ? roleNice(rec.NextRole) : '—';
         frag.querySelector('.current-approver').textContent = curr;
 
+        // Bind actions
         frag.querySelector('.btn-view-req').addEventListener('click', ()=> openMyReqDetails(rec));
+
+        const bEdit   = frag.querySelector('.btn-edit-req');
+        const bCancel = frag.querySelector('.btn-cancel-req');
+
+        const pid = pendingIdOf(rec) || pendingIdOf(rec._raw || {});
+        const enable = isPendingRow(rec);
+
+        if (bEdit){
+          bEdit.disabled = !enable;
+          bEdit.addEventListener('click', ()=> { if (enable) openEditMyReq(pid); });
+        }
+        if (bCancel){
+          bCancel.disabled = !enable;
+          bCancel.addEventListener('click', ()=> { if (enable) openCancelMyReq(pid); });
+        }
 
         tb.appendChild(frag);
         requestAnimationFrame(()=> row.classList.add('show'));
@@ -2847,6 +3075,7 @@
 
       renderPager('mine', 'pagerMine', pg);
     }
+
 
     function populateMineFilters(minePending){
       const statuses = Array.from(new Set((minePending || [])
